@@ -19,7 +19,7 @@ website:
 format:
   html:
       toc: true
-      toc-location: left
+      toc-location: right
       css: custom.css
       code-overflow: wrap
       highlight-style: ayu

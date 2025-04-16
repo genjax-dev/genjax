@@ -51,7 +51,7 @@ def dot_plot(x, y):
     return (
         Plot.dot(points, fill="cyan", opacity=0.7, r=2.0)
         + Plot.frame()
-        + Plot.aspectRatio(1.0)
+        + Plot.aspectRatio(1.5)
     )
 
 
@@ -100,7 +100,7 @@ dot_plot(xrange, y_samples)
 # The `@gen` decorator creates a _parallel generative function_, a datatype which
 # implements a probabilistic interface which exposes sampling and density
 # computation called _the generative function interface_, or GFI for short.
-# GenJAX's GFI is shown below.
+# GenJAX's GFI consists of 3 methods (`simulate`, `assess`, and `update`), which are shown below.
 
 # %% [markdown]
 # ### simulate
@@ -177,9 +177,27 @@ def flip_exact_loss(p):
     )
 
 
+flip_exact_loss
+
+# %% [markdown]
+# Using the `@expectation` decorator creates an `Expectation` object, which supports `jvp_estimate` and `grad_estimate` methods.
+#
+# For the above `@expectation`-decorated program, the meaning corresponds to the following expectation:
+# $$\mathcal{L}(p) := \mathbb{E}_{v \sim Ber(\cdot; p)}[\textbf{if}~v~\textbf{then}~0.0~\textbf{else}~\frac{-p}{2}]$$
+# which we can evaluate analytically:
+# $$\mathcal{L}(p) = (1 - p) * \frac{-p}{2} = \frac{p^2 - p}{2}$$
+# and whose $\nabla_p$ we can also evaluate analytically:
+# $$\nabla_p\mathcal{L}(p) = p - \frac{1}{2}$$
+#
+# The methods `jvp_estimate` and `grad_estimate` provide access to _gradient estimators_ for the expected value objective $\mathcal{L}(p)$.
+#
+# In the `@expectation`-decorated program, users can inform the automation _what gradient estimator they'd like to construct_ by using samplers equipped with estimation strategies (`flip_enum`, is a Bernoulli sampler with an annotation which directs ADEV's automation to use enumeration, exactly evaluating the expectation, to construct a gradient estimator).
+
+# %%
+# Compare ADEV's derived derivatives with the exact value.
 for p in [0.1, 0.3, 0.5, 0.7, 0.9]:
     p_dual = flip_exact_loss.jvp_estimate(Dual(p, 1.0))
-    treescope.show((p_dual.tangent, p - 0.5))
+    treescope.show(p_dual.tangent - (p - 0.5))
 
 # %% [markdown]
 # ## Programmable variational inference
