@@ -43,7 +43,7 @@ from genjax import modular_vmap as pjax_vmap
 from genjax import modular_vmap as vmap
 from genjax.adev import Dual, expectation, flip_enum
 
-treescope.basic_interactive_setup()
+treescope.basic_interactive_setup(autovisualize_arrays=False)
 
 
 def dot_plot(x, y):
