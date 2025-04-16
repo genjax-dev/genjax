@@ -25,8 +25,7 @@ format = "ruff format src && ruff format quarto/index.py && ruff check --fix src
 
 [tool.pixi.feature.docs.tasks]
 deploy = "quarto publish gh-pages ./quarto"
-quartodoc = "cd quarto && quartodoc build"
-preview = "cd quarto && quartodoc build && quarto preview ."
+preview = "quarto preview ./quarto"
 
 [tool.pixi.environments]
 format = { features = ["format"], solve-group = "default" }
@@ -34,4 +33,4 @@ docs = { features = ["docs"], solve-group = "docs" }
 
 [dependency-groups]
 format = ["ruff>=0.9.2,<0.10"]
-docs = ["jupyter", "quartodoc>=0.9.1,<0.10"]
+docs = ["jupyter"]
