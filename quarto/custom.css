@@ -32,18 +32,27 @@ code {
 code.sourceCode.python {
     font-family: 'Berkeley Mono', 'JetBrains Mono', ui-monospace, 'Cascadia Code',
     'Source Code Pro', Menlo, Consolas, 'DejaVu Sans Mono', monospace;
-    font-size: 16px;
-    font-weight: 600;
+    font-size: 14px;
+    font-weight: 700;
     font-variant-ligatures: discretionary-ligatures;
 }
 
 treescope-container::part(treescope_root) {
-  font-family: 'Berkeley Mono', 'JetBrains Mono', ui-monospace, 'Cascadia Code',
-  'Source Code Pro', Menlo, Consolas, 'DejaVu Sans Mono', monospace;
-  font-size: 16px;
-  font-weight: 600;
-  word-wrap: break-word;
-  width: fit-content;
-  display: block;
-  margin-bottom: 10px;
+    font-family: 'Berkeley Mono', 'JetBrains Mono', ui-monospace, 'Cascadia Code',
+    'Source Code Pro', Menlo, Consolas, 'DejaVu Sans Mono', monospace;
+    font-size: 14px;
+    font-weight: 700;
+    font-variant-ligatures: discretionary-ligatures;
+}
+
+div.cell {
+    margin-bottom: 10px;
+}
+
+pre {
+    font-family: 'Berkeley Mono', 'JetBrains Mono', ui-monospace, 'Cascadia Code',
+    'Source Code Pro', Menlo, Consolas, 'DejaVu Sans Mono', monospace;
+    font-size: 14px;
+    font-weight: 700;
+    font-variant-ligatures: discretionary-ligatures;
 }

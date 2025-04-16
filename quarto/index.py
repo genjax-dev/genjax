@@ -38,7 +38,7 @@ from jax import jit, make_jaxpr
 from jax.lax import cond
 from jax.numpy import array, sum, zeros
 
-from genjax import Importance, gen, marginal, normal, seed, trace
+from genjax import GFI, Importance, gen, marginal, normal, seed, trace
 from genjax import modular_vmap as pjax_vmap
 from genjax import modular_vmap as vmap
 from genjax.adev import Dual, expectation, flip_enum
@@ -95,14 +95,19 @@ def regression(x):
 
 
 # Sample a curve.
-xrange = jnp.linspace(-1, 1, 100)
-y_samples = regression.simulate((xrange,)).get_retval()
-dot_plot(xrange, y_samples)
+x_range = jnp.linspace(-1, 1, 100)
+y_samples = regression.simulate((x_range,)).get_retval()
+dot_plot(x_range, y_samples)
 
 # %% [markdown]
 # The `@gen` decorator creates a _parallel generative function_, a datatype which
 # implements a probabilistic interface which exposes sampling and density
 # computation called _the generative function interface_, or GFI for short.
+
+# %%
+isinstance(regression, GFI)
+
+# %% [markdown]
 # GenJAX's GFI consists of 3 methods (`simulate`, `assess`, and `update`), which are shown below.
 
 # %% [markdown]
@@ -110,7 +115,7 @@ dot_plot(xrange, y_samples)
 
 # %%
 # Sample a trace.
-sample_curve = regression.simulate((xrange,))
+sample_curve = regression.simulate((x_range,))
 sample_curve
 
 # %% [markdown]
@@ -120,7 +125,7 @@ sample_curve
 # Evaluate the density of random choices, and
 # the return value given those choices.
 choices = sample_curve.get_choices()
-density, retval = regression.assess((xrange,), choices)
+density, retval = regression.assess((x_range,), choices)
 density
 
 # %% [markdown]
@@ -131,7 +136,7 @@ density
 # which generated it, or the values of random choices,
 # and compute a density ratio for the change.
 new_choices = {"alpha": jnp.array([0.3, 1.0, 2.0])}
-new_trace, w, _, _ = sample_curve.update((xrange,), new_choices)
+new_trace, w, _, _ = sample_curve.update((x_range,), new_choices)
 new_trace["alpha"]
 
 # %% [markdown]
@@ -194,7 +199,7 @@ flip_exact_loss
 #
 # The methods `jvp_estimate` and `grad_estimate` provide access to _gradient estimators_ for the expected value objective $\mathcal{L}(p)$.
 #
-# In the `@expectation`-decorated program, users can inform the automation _what gradient estimator they'd like to construct_ by using samplers equipped with estimation strategies (`flip_enum`, is a Bernoulli sampler with an annotation which directs ADEV's automation to use enumeration, exactly evaluating the expectation, to construct a gradient estimator).
+# In the `@expectation`-decorated program, users can inform the automation _what gradient estimator they'd like to construct_ by using samplers equipped with estimation strategies (`flip_enum` is a Bernoulli sampler with an annotation which directs ADEV's automation to use enumeration, exactly evaluating the expectation, to construct a gradient estimator).
 
 # %%
 # Compare ADEV's derived derivatives with the exact value.
@@ -233,5 +238,13 @@ make_jaxpr(pjax_vmap(sampler, axis_size=10))()
 # %% [markdown]
 # GenJAX's GFI is implemented in terms of PJAX:
 
+
 # %%
-make_jaxpr(regression.simulate)((xrange,))
+@gen
+def model():
+    x = normal(0.0, 1.0) @ "x"
+    y = normal(0.0, 1.0) @ "y"
+    return x + y
+
+
+make_jaxpr(model.simulate)(())
