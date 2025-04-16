@@ -59,7 +59,10 @@ def dot_plot(x, y):
 # ## Modeling & inference with GenJAX
 
 # %% [markdown]
-# GenJAX supports convenient syntax to express programs that denote probability # distributions. The program below defines a polynomial regression model with a # prior over coefficients (`"alpha"`).
+# GenJAX supports convenient syntax to express programs
+# that denote probability distributions.
+# The program below defines a polynomial regression model with
+# a prior over coefficients (`"alpha"`).
 #
 # **(Example: polynomial regression model)**
 
@@ -103,7 +106,7 @@ dot_plot(xrange, y_samples)
 # GenJAX's GFI consists of 3 methods (`simulate`, `assess`, and `update`), which are shown below.
 
 # %% [markdown]
-# ### simulate
+# ### `GFI.simulate`
 
 # %%
 # Sample a trace.
@@ -111,7 +114,7 @@ sample_curve = regression.simulate((xrange,))
 sample_curve
 
 # %% [markdown]
-# ### assess
+# ### `GFI.assess`
 
 # %%
 # Evaluate the density of random choices, and
@@ -121,7 +124,7 @@ density, retval = regression.assess((xrange,), choices)
 density
 
 # %% [markdown]
-# ### update
+# ### `GFI.update`
 
 # %%
 # Change a trace by changing the probabilistic program

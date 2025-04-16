@@ -1,4 +1,3 @@
-/* css styles */
 @charset "utf-8";
 
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
@@ -10,17 +9,23 @@
     font-style: normal;
 }
 
-/*-- scss:rules --*/
-
 body {
   font-family: Inter, Roboto, 'Helvetica Neue', 'Arial Nova', 'Nimbus Sans',
     Arial, sans-serif;
   font-weight: normal;
 }
 
+pre code {
+  font-family: 'Berkeley Mono', 'JetBrains Mono', ui-monospace, 'Cascadia Code',
+    'Source Code Pro', Menlo, Consolas, 'DejaVu Sans Mono', monospace;
+  font-weight: 600;
+  font-variant-ligatures: discretionary-ligatures;
+}
+
 code {
   font-family: 'Berkeley Mono', 'JetBrains Mono', ui-monospace, 'Cascadia Code',
     'Source Code Pro', Menlo, Consolas, 'DejaVu Sans Mono', monospace;
+  font-weight: 600;
   font-variant-ligatures: discretionary-ligatures;
 }
 
