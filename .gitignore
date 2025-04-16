@@ -1,0 +1,6 @@
+.pixi
+*.egg-info
+__pycache__
+.DS_Store
+.ruff_cache
+docs

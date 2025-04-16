@@ -1,0 +1,44 @@
+/* css styles */
+@charset "utf-8";
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+
+@font-face {
+    font-family: 'Berkeley Mono';
+    src: url('./fonts/BerkeleyMonoVariable.woff2') format('woff2');
+    font-weight: 100 900;
+    font-style: normal;
+}
+
+/*-- scss:rules --*/
+
+body {
+  font-family: Inter, Roboto, 'Helvetica Neue', 'Arial Nova', 'Nimbus Sans',
+    Arial, sans-serif;
+  font-weight: normal;
+}
+
+code {
+  font-family: 'Berkeley Mono', 'JetBrains Mono', ui-monospace, 'Cascadia Code',
+    'Source Code Pro', Menlo, Consolas, 'DejaVu Sans Mono', monospace;
+  font-variant-ligatures: discretionary-ligatures;
+}
+
+code.sourceCode.python {
+    font-family: 'Berkeley Mono', 'JetBrains Mono', ui-monospace, 'Cascadia Code',
+    'Source Code Pro', Menlo, Consolas, 'DejaVu Sans Mono', monospace;
+    font-size: 16px;
+    font-weight: 600;
+    font-variant-ligatures: discretionary-ligatures;
+}
+
+treescope-container::part(treescope_root) {
+  font-family: 'Berkeley Mono', 'JetBrains Mono', ui-monospace, 'Cascadia Code',
+  'Source Code Pro', Menlo, Consolas, 'DejaVu Sans Mono', monospace;
+  font-size: 16px;
+  font-weight: 600;
+  word-wrap: break-word;
+  width: fit-content;
+  display: block;
+  margin-bottom: 10px;
+}

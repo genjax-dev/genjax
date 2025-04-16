@@ -1,0 +1,67 @@
+project:
+  type: website
+  output-dir: ../docs
+
+# tell quarto to read the generated sidebar
+metadata-files:
+  - reference/_sidebar.yml
+
+website:
+  title: "GenJAX"
+  navbar:
+      title: false
+      background: light
+      pinned: true
+      logo: ./assets/logo.png
+      right:
+          - text: "API Reference"
+            href: reference/index.qmd
+format:
+  html:
+      toc: true
+      toc-location: left
+      css: custom.css
+      code-overflow: wrap
+      highlight-style: ayu
+      sidebar: false
+      theme:
+          - cosmo
+
+      self-contained: true
+      code-line-numbers: false
+      grid:
+          margin-width: 350px
+      execute:
+        column: margin
+        reference-location: margin
+        citation-location: margin
+        jupyter: python3
+
+quartodoc:
+  title: "API Reference"
+  package: genjax
+  dir: reference
+  sidebar: reference/_sidebar.yml
+  css: reference/_styles-quartodoc.css
+  sections:
+    - title: JAX compatibility
+      desc: ""
+      contents:
+        - Pytree
+    - title: Generative functions
+      desc: "Probabilistic programs used for modeling and inference."
+      contents:
+        - GFI
+        - Fn
+        - Distribution
+        - Algorithm
+        - Marginal
+    - title: ADEV
+      desc: "Automatic differentiation of expected values."
+      contents:
+        - expectation
+    - title: PJAX
+      desc: "JAX with operations on probability distributions."
+      contents:
+        - seed
+        - modular_vmap
