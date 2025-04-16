@@ -13,9 +13,7 @@ format:
       code-overflow: wrap
       highlight-style: ayu
       sidebar: false
-      theme:
-          - cosmo
-
+      theme: cosmo
       self-contained: true
       code-line-numbers: false
       grid:
