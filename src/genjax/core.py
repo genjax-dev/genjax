@@ -1232,6 +1232,11 @@ class Distribution(Generic[X], GFI[X, X]):
             tr.get_retval(),
         )
 
+    def rv(self, *args, **kwargs):
+        v = self.assume(*args, **kwargs)
+        self.observe(v, *args, **kwargs)
+        return v
+
 
 # Mostly, just use TFP.
 # This wraps PJAX's `sample_p` correctly.

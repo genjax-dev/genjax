@@ -1,4 +1,3 @@
-# %%
 import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
@@ -9,12 +8,11 @@ from genjax import bernoulli, enum, modular_vmap
 
 
 def prog():
-    x = bernoulli.assume(0.8)
+    x = bernoulli.rv(probs=0.5)
+    y = bernoulli.rv(probs=0.3)
     p = cond(x, lambda: 0.3, lambda: 0.6)
-    return x, bernoulli.observe(x, probs=p)
+    return p > 0.5
 
 
-# %%
-v = jnp.array([True, False])
-probs = jnp.array([0.3, 0.6])
-print(jax.vmap(bernoulli.observe)(v, probs))
+x, score = enum(prog)()
+print(jax.scipy.special.logsumexp(score))

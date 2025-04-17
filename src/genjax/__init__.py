@@ -39,7 +39,7 @@ from .distributions import (
     flip,
     normal,
 )
-from .enum import enum
+from .enum import collect, enum
 
 __all__ = [
     "GFI",
@@ -57,6 +57,7 @@ __all__ = [
     "categorical",
     "expectation",
     "flip",
+    "collect",
     "enum",
     "flip_enum",
     "gen",

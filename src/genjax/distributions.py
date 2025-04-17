@@ -10,13 +10,13 @@ tfd = tfp.distributions
 bernoulli = tfp_distribution(
     partial(tfd.Bernoulli, dtype=jnp.bool_),
     name="Bernoulli",
-    support=lambda *args: jnp.array([True, False]),
+    support=lambda *args, **kwargs: jnp.array([True, False]),
 )
 
 flip = tfp_distribution(
     lambda p: tfd.Bernoulli(probs=p, dtype=jnp.bool_),
     name="Flip",
-    support=lambda *args: jnp.array([True, False]),
+    support=lambda *args, **kwargs: jnp.array([True, False]),
 )
 
 categorical = tfp_distribution(
