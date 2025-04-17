@@ -1,3 +1,4 @@
+import itertools as it
 from abc import abstractmethod
 from functools import wraps
 
@@ -9,12 +10,13 @@ from beartype.typing import Annotated, Any, Callable
 from beartype.vale import Is
 from jax import util as jax_util
 from jax.extend import source_info_util as src_util
-from jax.extend.core import Jaxpr, jaxpr_as_fun
+from jax.extend.core import Jaxpr, Var, jaxpr_as_fun
 from jax.interpreters import ad as jax_autodiff
 from jaxtyping import ArrayLike
 from tensorflow_probability.substrates import jax as tfp
 
 from .core import (
+    Distribution,
     ElaboratedPrimitive,
     Environment,
     Pytree,
@@ -53,9 +55,9 @@ class ADEVPrimitive(Pytree):
         pass
 
     @abstractmethod
-    def jvp_estimate(
+    def prim_jvp_estimate(
         self,
-        dual_tree: DualTree,  # Pytree with Dual leaves.
+        dual_tree: tuple[DualTree, ...],
         konts: tuple[
             Callable[..., Any],
             Callable[..., Any],
@@ -192,7 +194,12 @@ class ADEVInterpreter(Pytree):
             return jax_util.safe_map(pure_env.read, jaxpr.outvars)
 
         # Dual evaluation.
-        def eval_jaxpr_iterate_dual(eqns, dual_env, invars, flat_duals):
+        def eval_jaxpr_iterate_dual(
+            eqns,
+            dual_env: Environment,
+            invars: list[Var],
+            flat_duals: list[Dual],
+        ):
             jax_util.safe_map(dual_env.write, invars, flat_duals)
 
             for eqn_idx, eqn in enumerate(eqns):
@@ -217,13 +224,12 @@ class ADEVInterpreter(Pytree):
                             )
 
                         # Create dual continuation.
-                        def _sample_dual_kont(dual_tree):
-                            dual_leaves = Dual.tree_leaves(dual_tree)
+                        def _sample_dual_kont(*duals: Dual):
                             return eval_jaxpr_iterate_dual(
                                 eqns[eqn_idx + 1 :],
                                 dual_env,
                                 eqn.outvars,
-                                dual_leaves,
+                                list(duals),
                             )
 
                         in_tree = inner_params["in_tree"]
@@ -236,8 +242,8 @@ class ADEVInterpreter(Pytree):
                         _, *tangents = jtu.tree_unflatten(in_tree, flat_tangents)
                         dual_tree = Dual.dual_tree(primals, tangents)
 
-                        return adev_prim.jvp_estimate(
-                            dual_tree,
+                        return adev_prim.prim_jvp_estimate(
+                            tuple(dual_tree),
                             (_sample_pure_kont, _sample_dual_kont),
                         )
 
@@ -270,8 +276,7 @@ class ADEVInterpreter(Pytree):
                         # This could totally be something which breaks in the future...
                         return jax.lax.cond(
                             Dual.tree_primal(in_vals[0]),
-                            *reversed(branch_adev_functions),
-                            in_vals[1:],
+                            *it.chain(reversed(branch_adev_functions), in_vals[1:]),
                         )
 
                     # Default JVP rule for other JAX primitives.
@@ -309,11 +314,11 @@ class ADEVInterpreter(Pytree):
 
     @staticmethod
     def forward_mode(f, kont=lambda v: v):
-        def _inner(dual_tree: DualTree):
-            primals = jtu.tree_leaves(Dual.tree_primal(dual_tree))
+        def _inner(*duals: DualTree):
+            primals = Dual.tree_primal(duals)
             closed_jaxpr, (_, _, out_tree) = stage(f)(*primals)
             jaxpr, consts = closed_jaxpr.jaxpr, closed_jaxpr.literals
-            dual_leaves = Dual.tree_leaves(Dual.tree_pure(dual_tree))
+            dual_leaves = Dual.tree_leaves(Dual.tree_pure(duals))
             out_duals = ADEVInterpreter.eval_jaxpr_adev(
                 jaxpr,
                 consts,
@@ -332,9 +337,9 @@ class ADEVInterpreter(Pytree):
         def maybe_array(v):
             return jnp.array(v, copy=False)
 
-        def _dual(dual_tree: DualTree):
-            dual_tree = jtu.tree_map(maybe_array, dual_tree)
-            return _inner(dual_tree)
+        def _dual(*duals: DualTree):
+            duals = jtu.tree_map(maybe_array, duals)
+            return _inner(*duals)
 
         return _dual
 
@@ -350,17 +355,17 @@ class ADEVProgram(Pytree):
 
     def jvp_estimate(
         self,
-        dual_tree: DualTree,  # Pytree with Dual leaves.
+        duals: tuple[DualTree, ...],  # Pytree with Dual leaves.
         dual_kont: Callable[..., Any],
     ) -> Dual:
         def adev_jvp(f):
             @wraps(f)
-            def wrapped(dual_tree: DualTree):
-                return ADEVInterpreter.forward_mode(self.source, dual_kont)(dual_tree)
+            def wrapped(*duals: DualTree):
+                return ADEVInterpreter.forward_mode(self.source, dual_kont)(*duals)
 
             return wrapped
 
-        return adev_jvp(self.source)(dual_tree)
+        return adev_jvp(self.source)(*duals)
 
 
 ###############
@@ -372,28 +377,24 @@ class ADEVProgram(Pytree):
 class Expectation(Pytree):
     prog: ADEVProgram
 
-    def jvp_estimate(self, dual_tree: DualTree):
+    def jvp_estimate(self, *duals: DualTree):
         # Trivial continuation.
         def _identity(v):
             return v
 
-        return self.prog.jvp_estimate(dual_tree, _identity)
-
-    def estimate(self, args):
-        tangents = jtu.tree_map(lambda _: 0.0, args)
-        return self.jvp_estimate(tangents).primal
-
-    ##################################
-    # JAX's native `grad` interface. #
-    ##################################
+        return self.prog.jvp_estimate(duals, _identity)
 
     # The JVP rules here are registered below.
     # (c.f. Register custom forward mode with JAX)
-    def grad_estimate(self, primals: tuple[Any, ...]):
+    def grad_estimate(self, *primals):
         def _invoke_closed_over(primals):
             return invoke_closed_over(self, primals)
 
         return jax.grad(_invoke_closed_over)(primals)
+
+    def estimate(self, args):
+        tangents = jtu.tree_map(lambda _: 0.0, args)
+        return self.jvp_estimate(tangents).primal
 
 
 def expectation(source: Callable[..., Any]):
@@ -410,14 +411,14 @@ def expectation(source: Callable[..., Any]):
 # to ignore complexities with defining custom JVP rules for Pytree classes.
 @jax.custom_jvp
 def invoke_closed_over(instance, args):
-    return instance.estimate(args)
+    return instance.estimate(*args)
 
 
-def invoke_closed_over_jvp(primals, tangents):
+def invoke_closed_over_jvp(primals: tuple, tangents: tuple):
     (instance, primals) = primals
-    (_, _, tangents) = tangents
+    (_, tangents) = tangents
     duals = Dual.dual_tree(primals, tangents)
-    out_dual = instance.jvp_estimate(duals)
+    out_dual = instance.jvp_estimate(*duals)
     (v,), (tangent,) = Dual.tree_unzip(out_dual)
     return v, tangent
 
@@ -437,7 +438,7 @@ class REINFORCE(ADEVPrimitive):
     def sample(self, *args):
         return self.sample_function(*args)
 
-    def jvp_estimate(
+    def prim_jvp_estimate(
         self,
         dual_tree: DualTree,
         konts: tuple[Any, ...],
@@ -472,9 +473,9 @@ class FlipEnum(ADEVPrimitive):
         (probs,) = args
         return 1 == bernoulli.sample(probs)
 
-    def jvp_estimate(
+    def prim_jvp_estimate(
         self,
-        dual_tree: DualTree,
+        dual_tree: tuple[DualTree, ...],
         konts: tuple[Any, ...],
     ):
         (_, kdual) = konts
@@ -505,7 +506,7 @@ class FlipMVD(ADEVPrimitive):
         p = (args,)
         return 1 == bernoulli.sample(probs=p)
 
-    def jvp_estimate(
+    def prim_jvp_estimate(
         self,
         dual_tree: DualTree,
         konts: tuple[Any, ...],
@@ -530,7 +531,7 @@ class FlipEnumParallel(ADEVPrimitive):
         (p,) = args
         return 1 == bernoulli.sample(probs=p)
 
-    def jvp_estimate(
+    def prim_jvp_estimate(
         self,
         dual_tree: DualTree,
         konts: tuple[Any, ...],
@@ -564,7 +565,7 @@ class CategoricalEnumParallel(ADEVPrimitive):
         (probs,) = args
         return categorical.sample(probs)
 
-    def jvp_estimate(
+    def prim_jvp_estimate(
         self,
         dual_tree: DualTree,
         konts: tuple[Any, ...],
@@ -591,18 +592,27 @@ class CategoricalEnumParallel(ADEVPrimitive):
 
 categorical_enum_parallel = CategoricalEnumParallel()
 
-flip_reinforce = reinforce(
-    bernoulli.sample,
+flip_reinforce = Distribution(
+    reinforce(
+        bernoulli.sample,
+        bernoulli.logpdf,
+    ),
     bernoulli.logpdf,
 )
 
-geometric_reinforce = reinforce(
-    geometric.sample,
+geometric_reinforce = Distribution(
+    reinforce(
+        geometric.sample,
+        geometric.logpdf,
+    ),
     geometric.logpdf,
 )
 
-normal_reinforce = reinforce(
-    normal.sample,
+normal_reinforce = Distribution(
+    reinforce(
+        normal.sample,
+        normal.logpdf,
+    ),
     normal.logpdf,
 )
 
@@ -613,7 +623,7 @@ class NormalREPARAM(ADEVPrimitive):
         loc, scale_diag = args
         return normal.sample(loc, scale_diag)
 
-    def jvp_estimate(
+    def prim_jvp_estimate(
         self,
         dual_tree: DualTree,
         konts: tuple[Any, ...],
@@ -634,25 +644,10 @@ class NormalREPARAM(ADEVPrimitive):
         return kdual(Dual(primal_out, tangent_out))
 
 
-normal_reparam = NormalREPARAM()
-
-
-@Pytree.dataclass
-class Uniform(ADEVPrimitive):
-    def sample(self, *_args):
-        return uniform.sample(0.0, 1.0)
-
-    def jvp_estimate(
-        self,
-        dual_tree: DualTree,
-        konts: tuple[Any, ...],
-    ):
-        _, kdual = konts
-        x = uniform.sample(0.0, 1.0)
-        return kdual(Dual(x, 0.0))
-
-
-uniform = Uniform()
+normal_reparam = Distribution(
+    NormalREPARAM(),
+    normal.logpdf,
+)
 
 
 @Pytree.dataclass
@@ -662,7 +657,7 @@ class Baseline(ADEVPrimitive):
     def sample(self, *args):
         return self.prim.sample(*args[1:])
 
-    def jvp_estimate(
+    def prim_jvp_estimate(
         self,
         dual_tree: DualTree,
         konts: tuple[Any, ...],
@@ -684,7 +679,7 @@ class Baseline(ADEVPrimitive):
             )
             return Dual(primal, tangent)
 
-        l_dual = self.prim.jvp_estimate(
+        l_dual = self.prim.prim_jvp_estimate(
             Dual.dual_tree(prim_primals, prim_tangents),
             (kpure, new_kdual),
         )
@@ -715,7 +710,7 @@ class AddCost(ADEVPrimitive):
         (w,) = args
         return w
 
-    def jvp_estimate(
+    def prim_jvp_estimate(
         self,
         dual_tree: DualTree,
         konts: tuple[Any, ...],

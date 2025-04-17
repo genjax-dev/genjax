@@ -30,15 +30,27 @@
 # %%
 # | code-summary: Prelude
 # | code-fold: true
+from functools import partial
+
 import genstudio.plot as Plot
 import jax.numpy as jnp
 import jax.random as jrand
 import treescope
 from jax import jit, make_jaxpr
-from jax.lax import cond
+from jax.lax import cond, scan
 from jax.numpy import array, sum, zeros
 
-from genjax import GFI, Importance, gen, marginal, normal, seed, trace
+from genjax import (
+    GFI,
+    Importance,
+    gen,
+    marginal,
+    normal,
+    normal_reinforce,
+    normal_reparam,
+    seed,
+    trace,
+)
 from genjax import modular_vmap as pjax_vmap
 from genjax import modular_vmap as vmap
 from genjax.adev import Dual, expectation, flip_enum
@@ -46,13 +58,16 @@ from genjax.adev import Dual, expectation, flip_enum
 treescope.basic_interactive_setup(autovisualize_arrays=False)
 
 
-def dot_plot(x, y):
+def dot_plot(x, y, aspect_ratio=None):
     points = list(zip(x, y))
-    return (
-        Plot.dot(points, fill="cyan", opacity=0.7, r=2.0)
+    plot = (
+        Plot.dot(
+            points, fill="black", stroke="white", opacity=1.0, strokeWidth=0.5, r=2.5
+        )
         + Plot.frame()
-        + Plot.aspectRatio(1.5)
     )
+    plot = plot + Plot.aspectRatio(aspect_ratio) if aspect_ratio else plot
+    return plot
 
 
 # %% [markdown]
@@ -207,9 +222,103 @@ for p in [0.1, 0.3, 0.5, 0.7, 0.9]:
     p_dual = flip_exact_loss.jvp_estimate(Dual(p, 1.0))
     treescope.show(p_dual.tangent - (p - 0.5))
 
+
 # %% [markdown]
 # ## Programmable variational inference
 #
+# ADEV provides access to unbiased gradient estimators of expected
+# value objectives, and expected value objectives occur often in
+# _variational inference_, where users define optimization problems
+# over spaces of distributions, often using some notion of closeness
+# defined via an expected value.
+#
+# For instance, given the density of an unnormalized measure $P$ and parametric variational approximation $Q(\cdot; \theta)$, the _evidence lower bound_ objective
+# $$\mathbb{E}_{x \sim Q(\cdot; \theta)}[\log P(x) - \log Q(x; \theta)]$$
+# is often used to define inference problems as optimization, where $\theta \mapsto \theta'$ involves maximizing the objective, squeezing a KL divergence between the normalized version of $P$ and $Q$.
+
+
+# %%
+# | column: margin
+# | fig-cap: "The theta parameter over the course of training with a REINFORCE gradient estimator."
+@gen
+def variational_model():
+    x = normal(0.0, 1.0) @ "x"
+    y = normal(x, 0.3) @ "y"
+
+
+@gen
+def variational_family(theta):
+    # Use distribution with a gradient strategy!
+    x = normal_reinforce(theta, 1.0) @ "x"
+
+
+@expectation
+def elbo(family, data: dict, theta):
+    # Use GFI methods to structure the objective function!
+    tr = family.simulate((theta,))
+    q = tr.get_score()
+    p, _ = variational_model.assess((), {**data, **tr.get_choices()})
+    return p - q
+
+
+def optimize(family, data, init_theta):
+    def update(theta, _):
+        _, _, theta_grad = elbo.grad_estimate(family, data, theta)
+        theta += 1e-3 * theta_grad
+        return theta, theta
+
+    final_theta, intermediate_thetas = scan(
+        update,
+        init_theta,
+        length=500,
+    )
+    return final_theta, intermediate_thetas
+
+
+# `seed`: seed any sampling with fresh random keys.
+# (GenJAX will send you a warning if you need to do this)
+_, thetas = seed(optimize)(
+    jrand.key(1),
+    variational_family,
+    {"y": 3.0},
+    0.01,
+)
+dot_plot(jnp.arange(500), thetas)
+
+# %% [markdown]
+# ### What's programmable about it?
+#
+# Users are allowed to change their objective function (by writing programs which denote objectives), and they are also allowed to change the unbiased gradient estimator strategy for the objective.
+#
+# For instance, instead of using `normal_reinforce`, we could use `normal_reparam`.
+
+
+# %%
+# | column: margin
+# | fig-cap: "The theta parameter over the course of training with a reparametrization gradient estimator."
+@gen
+def reparam_variational_family(theta):
+    # Use distribution with a gradient strategy!
+    x = normal_reparam(theta, 1.0) @ "x"
+
+
+_, thetas = seed(optimize)(
+    jrand.key(1),
+    reparam_variational_family,
+    {"y": 3.0},
+    0.01,
+)
+dot_plot(jnp.arange(500), thetas)
+
+# %% [markdown]
+# which leads to a significantly less noisy training process.
+# Trying out different objective functions, and
+# unbiased gradient estimators is an important part of
+# designing variational inference algorithms, and
+# programmable variational inference tries to make this
+# more convenient.
+
+# %% [markdown]
 # ## Case study: probabilistic atavising the _Game of Life_
 #
 # ## Under the hood: PJAX
@@ -248,3 +357,16 @@ def model():
 
 
 make_jaxpr(model.simulate)(())
+
+# %% [markdown]
+# Even ADEV's unbiased gradient estimator programs are implemented in terms of PJAX:
+
+
+# %%
+@expectation
+def loss(mu):
+    x = normal_reparam.sample(mu, 1.0)
+    return x**2
+
+
+make_jaxpr(loss.grad_estimate)(0.1)

@@ -14,6 +14,8 @@ from .adev import (
     Dual,
     expectation,
     flip_enum,
+    normal_reinforce,
+    normal_reparam,
 )
 from .core import (
     GFI,
@@ -57,6 +59,8 @@ __all__ = [
     "expectation",
     "flip",
     "flip_enum",
+    "normal_reparam",
+    "normal_reinforce",
     "gen",
     "get_choices",
     "marginal",
