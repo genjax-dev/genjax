@@ -48,7 +48,9 @@ class EnumerationInterpreter:
                     return modular_vmap(continuation)(support)
 
                 else:
-                    outvals = eqn.primitive.bind(*args, **params)
+                    outvals = ElaboratedPrimitive.rebind(
+                        eqn.primitive, inner_params, params, *args
+                    )
 
                 if not eqn.primitive.multiple_results:
                     outvals = [outvals]

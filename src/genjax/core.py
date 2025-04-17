@@ -318,10 +318,6 @@ class ElaboratedPrimitive(Primitive):
         mlir.register_lowering(self, lowering)
 
     @classmethod
-    def unwrap(cls, v):
-        return (v.prim, v.params) if isinstance(v, ElaboratedPrimitive) else (v, {})
-
-    @classmethod
     def check(cls, primitive, other):
         if isinstance(primitive, ElaboratedPrimitive):
             return primitive.prim == other
@@ -329,8 +325,21 @@ class ElaboratedPrimitive(Primitive):
             return primitive == other
 
     @classmethod
-    def rebind(cls, primitive: Primitive, *args, **params):
-        return primitive.bind(*args, **params)
+    def unwrap(cls, v):
+        return (v.prim, v.params) if isinstance(v, ElaboratedPrimitive) else (v, {})
+
+    @classmethod
+    def rebind(
+        cls,
+        primitive: Primitive,
+        inner_params,
+        params,
+        *args,
+    ):
+        if isinstance(primitive, InitialStylePrimitive):
+            return ElaboratedPrimitive(primitive, **inner_params).bind(*args, **params)
+        else:
+            return primitive.bind(*args, **params)
 
 
 def batch_fun(fun: lu.WrappedFun, axis_data, in_dims):
@@ -419,6 +428,7 @@ def initial_style_bind(
                 in_tree=in_tree,
                 out_tree=out_tree,
                 num_consts=len(jaxpr.literals),
+                yes_kwargs=bool(kwargs),
                 **params,
             )
             outs = elaborated_prim.bind(
@@ -601,9 +611,26 @@ def observe_binder(
         # nest vmaps...
         def batch(vector_args, batch_axes, **params):
             n = static_dim_length(batch_axes, tuple(vector_args))
-            v = observe_binder(
-                jax.vmap(log_density_impl, in_axes=batch_axes), name=name
-            )(*vector_args)
+            in_tree = jtu.tree_unflatten(params["in_tree"], vector_args)
+            batch_tree = jtu.tree_unflatten(params["in_tree"], batch_axes)
+            if params["yes_kwargs"]:
+                args = in_tree[0]
+                kwargs = in_tree[1]
+                v = observe_binder(
+                    jax.vmap(
+                        lambda args, kwargs: log_density_impl(*args, **kwargs),
+                        in_axes=batch_tree,
+                    ),
+                    name=name,
+                )(args, kwargs)
+            else:
+                v = observe_binder(
+                    jax.vmap(
+                        log_density_impl,
+                        in_axes=batch_tree,
+                    ),
+                    name=name,
+                )(*in_tree)
             outvals = (v,)
             out_axes = (0 if n else None,)
             return outvals, out_axes
