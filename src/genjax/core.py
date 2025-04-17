@@ -475,11 +475,11 @@ class style:
     RESET = "\033[0m"
 
 
-sample_p = InitialStylePrimitive(
-    f"{style.BOLD}{style.CYAN}pjax.sample{style.RESET}",
+assume_p = InitialStylePrimitive(
+    f"{style.BOLD}{style.CYAN}pjax.assume{style.RESET}",
 )
-log_density_p = InitialStylePrimitive(
-    f"{style.BOLD}{style.CYAN}pjax.log_density{style.RESET}",
+observe_p = InitialStylePrimitive(
+    f"{style.BOLD}{style.CYAN}pjax.observe{style.RESET}",
 )
 
 
@@ -515,9 +515,10 @@ global_counter = GlobalKeyCounter()
 _fake_key = jrand.key(1)
 
 
-def sample_binder(
+def assume_binder(
     keyful_sampler: Callable[..., Any],
     name: str | None = None,
+    support: Callable[..., Any] | None = None,
     batch_shape: tuple[int, ...] = (),
 ):
     keyful_with_batch_shape = partial(keyful_sampler, sample_shape=batch_shape)
@@ -559,7 +560,7 @@ def sample_binder(
                 )
                 assert isinstance(outer_batch_dim, tuple)
                 new_batch_shape = outer_batch_dim + batch_shape
-                v = sample_binder(
+                v = assume_binder(
                     keyful_sampler,
                     name=name,
                     batch_shape=new_batch_shape,
@@ -579,10 +580,11 @@ def sample_binder(
         )
 
         return initial_style_bind(
-            sample_p,
+            assume_p,
             keyful_sampler=keyful_sampler,
             flat_keyful_sampler=flat_keyful_sampler,
             batch=batch,
+            support=support,
             lowering_warning=lowering_msg,
             lowering_exception=lowering_exception,
         )(keyless, dist=name)(*args, **kwargs)
@@ -590,16 +592,16 @@ def sample_binder(
     return sampler
 
 
-def log_density_binder(
+def observe_binder(
     log_density_impl: Callable[..., Any],
     name: str | None = None,
 ):
-    def log_density(*args, **kwargs):
+    def observe(*args, **kwargs):
         # TODO: really not sure if this is right if you
         # nest vmaps...
         def batch(vector_args, batch_axes, **params):
             n = static_dim_length(batch_axes, tuple(vector_args))
-            v = log_density_binder(
+            v = observe_binder(
                 jax.vmap(log_density_impl, in_axes=batch_axes), name=name
             )(*vector_args)
             outvals = (v,)
@@ -607,11 +609,11 @@ def log_density_binder(
             return outvals, out_axes
 
         return initial_style_bind(
-            log_density_p,
+            observe_p,
             batch=batch,
         )(log_density_impl, dist=name)(*args, **kwargs)
 
-    return log_density
+    return observe
 
 
 VarOrLiteral = Var | Literal
@@ -705,7 +707,7 @@ class SeedInterpreter:
             args = subfuns + invals
             primitive, inner_params = ElaboratedPrimitive.unwrap(eqn.primitive)
 
-            if primitive == sample_p:
+            if primitive == assume_p:
                 invals = safe_map(env.read, eqn.invars)
                 args = subfuns + invals
                 flat_keyful_sampler = inner_params["flat_keyful_sampler"]
@@ -831,7 +833,7 @@ class ModularVmapInterpreter:
             args = subfuns + invals
 
             # Probabilistic.
-            if ElaboratedPrimitive.check(eqn.primitive, sample_p):
+            if ElaboratedPrimitive.check(eqn.primitive, assume_p):
                 outvals = eqn.primitive.bind(
                     dummy_arg,
                     *args,
@@ -1170,15 +1172,15 @@ class Vmap(Generic[X, R], GFI[X, R]):
 
 @Pytree.dataclass
 class Distribution(Generic[X], GFI[X, X]):
-    sample: Callable[..., X] = Pytree.static()
-    logpdf: Callable[[X, Any], Weight] = Pytree.static()
+    assume: Callable[..., X] = Pytree.static()
+    observe: Callable[..., Weight] = Pytree.static()
 
     def simulate(
         self,
         args,
     ) -> Trace[X, X]:
-        x = self.sample(*args)
-        log_density = self.logpdf(x, *args)
+        x = self.assume(*args)
+        log_density = self.observe(x, *args)
         return Trace(self, args, x, x, -log_density)
 
     def assess(
@@ -1186,7 +1188,7 @@ class Distribution(Generic[X], GFI[X, X]):
         args,
         x: X,
     ) -> tuple[Weight, X]:
-        log_density = self.logpdf(x, *args)
+        log_density = self.observe(x, *args)
         return log_density, x
 
     def update(
@@ -1195,7 +1197,7 @@ class Distribution(Generic[X], GFI[X, X]):
         tr: Trace[X, X],
         x_: X,
     ) -> tuple[Trace[X, X], Weight, X, X]:
-        log_density_ = self.logpdf(x_, *args_)
+        log_density_ = self.observe(x_, *args_)
         return (
             Trace(self, args_, x_, x_, -log_density_),
             log_density_ + tr.get_score(),
@@ -1208,6 +1210,7 @@ class Distribution(Generic[X], GFI[X, X]):
 # This wraps PJAX's `sample_p` correctly.
 def tfp_distribution[X](
     dist: Callable[..., "tfd.Distribution"],
+    support: Callable[..., Any] | None = None,
     name: str | None = None,
 ) -> Distribution[Any]:
     """
@@ -1226,7 +1229,7 @@ def tfp_distribution[X](
     `log_prob` methods to define the generative function's behavior.
     """
 
-    def sampler(*args, **kwargs):
+    def assume(*args, **kwargs):
         def keyful_sampler(key, *args, sample_shape=(), **kwargs):
             d = dist(*args, **kwargs)
             return d.sample(seed=key, sample_shape=sample_shape)
@@ -1234,25 +1237,26 @@ def tfp_distribution[X](
         batch_shape = kwargs.get("shape", ())
         if "shape" in kwargs:
             kwargs.pop("shape")
-        return sample_binder(
+        return assume_binder(
             keyful_sampler,
             name=name,
+            support=support,
             batch_shape=batch_shape,
         )(
             *args,
             **kwargs,
         )
 
-    def logpdf(v, *args, **kwargs):
+    def observe(v, *args, **kwargs):
         def _log_density(v, *args, **kwargs):
             d = dist(*args, **kwargs)
             return d.log_prob(v)
 
-        return log_density_binder(_log_density, name=name)(v, *args, **kwargs)
+        return observe_binder(_log_density, name=name)(v, *args, **kwargs)
 
     return Distribution(
-        sampler,
-        logpdf,
+        assume,
+        observe,
     )
 
 
@@ -1417,7 +1421,7 @@ class Importance(Generic[R], Algorithm[dict[str, Any]]):
 
         ps = modular_vmap(_assess)(choices)
         ws = ps - modular_vmap(lambda tr: tr.get_score())(tr)
-        idx = categorical.sample(ws)
+        idx = categorical.assume(ws)
         v = jtu.tree_map(lambda x: x[idx], choices)
         Z = logsumexp(ws) - jnp.log(self.K)
         return Trace(self, args, v, v, Z)

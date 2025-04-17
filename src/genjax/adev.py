@@ -18,9 +18,9 @@ from .core import (
     ElaboratedPrimitive,
     Environment,
     Pytree,
+    assume_p,
     initial_style_bind,
     modular_vmap,
-    sample_p,
     stage,
 )
 from .distributions import bernoulli, categorical, geometric, normal
@@ -76,7 +76,7 @@ def sample_primitive(adev_prim: ADEVPrimitive, *args):
     def _adev_prim_call(adev_prim, *args):
         return adev_prim.sample(*args)
 
-    return initial_style_bind(sample_p)(_adev_prim_call)(adev_prim, *args)
+    return initial_style_bind(assume_p)(_adev_prim_call)(adev_prim, *args)
 
 
 ####################
@@ -181,7 +181,7 @@ class ADEVInterpreter(Pytree):
                 in_vals = jax_util.safe_map(pure_env.read, eqn.invars)
                 subfuns, params = eqn.primitive.get_bind_params(eqn.params)
                 args = subfuns + in_vals
-                if eqn.primitive is sample_p:
+                if eqn.primitive is assume_p:
                     pass
                 else:
                     outs = eqn.primitive.bind(*args, **params)
@@ -203,7 +203,7 @@ class ADEVInterpreter(Pytree):
 
                     primitive, inner_params = ElaboratedPrimitive.unwrap(eqn.primitive)
                     # Our sample_p primitive.
-                    if primitive is sample_p:
+                    if primitive is assume_p:
                         dual_env = dual_env.copy()
                         pure_env = Dual.tree_primal(dual_env)
 
@@ -470,7 +470,7 @@ def reinforce(sample_func, logpdf_func):
 class FlipEnum(ADEVPrimitive):
     def sample(self, *args):
         (probs,) = args
-        return 1 == bernoulli.sample(probs)
+        return 1 == bernoulli.assume(probs)
 
     def jvp_estimate(
         self,
@@ -503,7 +503,7 @@ flip_enum = FlipEnum()
 class FlipMVD(ADEVPrimitive):
     def sample(self, *args):
         p = (args,)
-        return 1 == bernoulli.sample(probs=p)
+        return 1 == bernoulli.assume(probs=p)
 
     def jvp_estimate(
         self,
@@ -513,7 +513,7 @@ class FlipMVD(ADEVPrimitive):
         (kpure, kdual) = konts
         (p_primal,) = Dual.tree_primal(dual_tree)
         (p_tangent,) = Dual.tree_primal(dual_tree)
-        v = bernoulli.sample(probs=p_primal)
+        v = bernoulli.assume(probs=p_primal)
         b = v == 1
         b_primal, b_tangent = kdual((b,), (jnp.zeros_like(b),))
         other = kpure(jnp.logical_not(b))
@@ -528,7 +528,7 @@ flip_mvd = FlipMVD()
 class FlipEnumParallel(ADEVPrimitive):
     def sample(self, *args):
         (p,) = args
-        return 1 == bernoulli.sample(probs=p)
+        return 1 == bernoulli.assume(probs=p)
 
     def jvp_estimate(
         self,
@@ -562,7 +562,7 @@ flip_enum_parallel = FlipEnumParallel()
 class CategoricalEnumParallel(ADEVPrimitive):
     def sample(self, *args):
         (probs,) = args
-        return categorical.sample(probs)
+        return categorical.assume(probs)
 
     def jvp_estimate(
         self,
@@ -592,18 +592,18 @@ class CategoricalEnumParallel(ADEVPrimitive):
 categorical_enum_parallel = CategoricalEnumParallel()
 
 flip_reinforce = reinforce(
-    bernoulli.sample,
-    bernoulli.logpdf,
+    bernoulli.assume,
+    bernoulli.observe,
 )
 
 geometric_reinforce = reinforce(
-    geometric.sample,
-    geometric.logpdf,
+    geometric.assume,
+    geometric.observe,
 )
 
 normal_reinforce = reinforce(
-    normal.sample,
-    normal.logpdf,
+    normal.assume,
+    normal.observe,
 )
 
 
@@ -611,7 +611,7 @@ normal_reinforce = reinforce(
 class NormalREPARAM(ADEVPrimitive):
     def sample(self, *args):
         loc, scale_diag = args
-        return normal.sample(loc, scale_diag)
+        return normal.assume(loc, scale_diag)
 
     def jvp_estimate(
         self,
@@ -621,7 +621,7 @@ class NormalREPARAM(ADEVPrimitive):
         _, kdual = konts
         (mu_primal, sigma_primal) = Dual.tree_primal(dual_tree)
         (mu_tangent, sigma_tangent) = Dual.tree_tangent(dual_tree)
-        eps = normal.sample(0.0, 1.0)
+        eps = normal.assume(0.0, 1.0)
 
         def _inner(mu, sigma):
             return mu + sigma * eps
@@ -635,24 +635,6 @@ class NormalREPARAM(ADEVPrimitive):
 
 
 normal_reparam = NormalREPARAM()
-
-
-@Pytree.dataclass
-class Uniform(ADEVPrimitive):
-    def sample(self, *_args):
-        return uniform.sample(0.0, 1.0)
-
-    def jvp_estimate(
-        self,
-        dual_tree: DualTree,
-        konts: tuple[Any, ...],
-    ):
-        _, kdual = konts
-        x = uniform.sample(0.0, 1.0)
-        return kdual(Dual(x, 0.0))
-
-
-uniform = Uniform()
 
 
 @Pytree.dataclass

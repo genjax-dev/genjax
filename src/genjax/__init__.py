@@ -39,6 +39,7 @@ from .distributions import (
     flip,
     normal,
 )
+from .ve import ve
 
 __all__ = [
     "GFI",
@@ -56,6 +57,7 @@ __all__ = [
     "categorical",
     "expectation",
     "flip",
+    "ve",
     "flip_enum",
     "gen",
     "get_choices",
