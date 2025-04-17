@@ -319,8 +319,31 @@ dot_plot(jnp.arange(500), thetas)
 # more convenient.
 
 # %% [markdown]
-# ## Case study: probabilistic atavising the _Game of Life_
+# ## Programmable Monte Carlo
 #
+# GenJAX's GFI is designed to provide users with the ability
+# to construct customized Monte Carlo algorithms,
+# producing better quality approximations in difficult inference
+# settings. Paired with expressive modeling syntax, GenJAX
+# allows users to construct complex distributions concisely,
+# and develop effective sampling (and variational)
+# approximations.
+
+# %% [markdown]
+# ### Case study: inferencing the _Game of Life_
+#
+# The _Game of Life_ is a computational system which gives rise
+# to a bewildering array of interesting phenomenon. One
+# interesting theoretical question: given a fixed Life
+# configuration, is it possible to find a configuration that
+# precedes it? This is known as _atavising_. Exact atavisation
+# is a complex, high-dimensional discrete search problem.
+# By relaxing the problem to _noisily_ atavise (by adding a
+# bit of probability), we can construct algorithms that
+# build approximate predecessor states almost instantaneously
+# on modern hardware.
+
+# %% [markdown]
 # ## Under the hood: PJAX
 
 # %% [markdown]
@@ -370,3 +393,41 @@ def loss(mu):
 
 
 make_jaxpr(loss.grad_estimate)(0.1)
+
+# %% [markdown]
+# ## Advanced topics: more on the GFI
+
+# %% [markdown]
+# ## Future work & sharp edges
+#
+# The creators of GenJAX have intended for GenJAX to be a useful
+# and somewhat general design for GPU-accelerated
+# probabilistic programming! Of course, that's not always
+# possible: there are known sharp edges when using GenJAX's
+# automation, which we tabulate below.
+#
+# ### Incompatibilities between features
+#
+# #### `vmap` within ADEV programs
+#
+# The semantics of `vmap` _within_ ADEV programs is a
+# direction of future research. `vmap` is a
+# vectorization transformation that converts primitives
+# into batched versions of themselves. For ADEV's samplers,
+# the primitives come equipped with gradient estimation
+# strategies. Therefore, using `vmap` on code which contains
+# ADEV samplers requires care. Not all primitives support
+# "batched" gradient estimation strategies.
+#
+# #### `scan` within ADEV programs
+#
+# `scan` is a second-order control flow primitive which supports
+# iteration behavior within JAX programs. ADEV's automation
+# has not yet been extended to work with `scan`. There are
+# levels to `scan` compatibility, which we briefly mention below:
+#
+# * (Not done, but should be straightforward) "deterministic" `scan` (no ADEV samplers _within_ `scan`)
+#
+# * (Possibly a bit of work, but also seemingly straightforward) `scan` with ADEV samplers _which invoke the continuation in tail position_
+#
+# * (Unknown, possibly very hard) `scan` with ADEV samplers that invoke the continuation multiple times, or not in tail position.

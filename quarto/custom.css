@@ -56,3 +56,18 @@ pre {
     font-weight: 700;
     font-variant-ligatures: discretionary-ligatures;
 }
+
+@counter-style thumbs {
+  system: cyclic;
+  symbols: "⚀" "⚁" "⚂" "⚃" "⚄" "⚅";
+  suffix: " ";
+  font-size: 20px;
+}
+
+ul {
+  list-style: thumbs;
+}
+
+li::marker {
+    font-size: 20px;
+}
