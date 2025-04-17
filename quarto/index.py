@@ -74,18 +74,34 @@ def dot_plot(x, y, aspect_ratio=None):
 # ## Modeling & inference with GenJAX
 
 # %% [markdown]
+#
+# Writing a probabilistic model involves _telling a story
+# about how the data might have been generated_. Inference
+# is the process of _inverting that story_, to attempt
+# to construct a representation of the _elements of the story_
+# which coheres with the data.
+#
+# Another way to think about it: you're authoring a world whose
+# behavior can give rise to the data, and we're exploring
+# queries like "I see the data, now what was the behavior,
+# probably?"
+#
+# Even a regression model follows this pattern.
+#
 # GenJAX supports convenient syntax to express programs
-# that denote probability distributions.
+# that denote probability distributions (over these worlds!).
 # The program below defines a polynomial regression model with
 # a prior over coefficients (`"alpha"`).
-#
-# **(Example: polynomial regression model)**
 
 
 # %%
 # | column: margin
 # | fig-cap: "Samples from a probabilistic program defining a distribution which can be used as a regression model. Points sampled noisily near polynomial curves."
-# A regression model.
+# "Authoring a world" in GenJAX:
+# * convenient syntax for denoting random variables
+# * modeling constructs to build larger distributions from
+#   small ones
+# * compatibility with JAX computations
 @gen
 def regression(x):
     # Addresses like "alpha" denote random variables.
@@ -115,8 +131,9 @@ y_samples = regression.simulate((x_range,)).get_retval()
 dot_plot(x_range, y_samples)
 
 # %% [markdown]
-# The `@gen` decorator creates a _parallel generative function_, a datatype which
-# implements a probabilistic interface that provides automation
+# The `@gen` decorator creates a _parallel generative function_,
+# a probabilistic program datatype which
+# implements an interface that provides automation
 # for sampling and density computation.
 # The interface is called _the generative function interface_, or GFI for short.
 
@@ -176,9 +193,10 @@ new_trace["alpha"]
 
 # %% [markdown]
 # The `update` method allows you to modify or reweight an
-# existing trace. This method is immensely useful when you wish
-# to implement algorithms that make changes to samples, like
-# Markov chain Monte Carlo (MCMC), or variants of sequential Monte Carlo (SMC).
+# existing trace. This method is useful when you wish
+# to implement algorithms whose logic involves making change
+# to samples, like Markov chain Monte Carlo (MCMC), or
+# variants of sequential Monte Carlo (SMC).
 
 # %% [markdown]
 # ### Why the GFI?
