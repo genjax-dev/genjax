@@ -19,7 +19,7 @@
 #
 # GenJAX's automation is based on two key concepts: _parallel generative functions_ (GenJAX's version of probabilistic programs) and _traces_ (samples from probabilistic programs). GenJAX provides:
 #
-# * Modeling language automation for constructing complex probability distributions from pieces
+# * Modeling language automation for constructing complex probability distributions.
 #
 # * Inference automation for constructing Monte Carlo samplers using convenient idioms (programs expressed by creating and modifying traces), and [variational inference automation](https://dl.acm.org/doi/10.1145/3656463)([artifact](https://github.com/femtomc/programmable-vi-pldi-2024)) using [new extensions to automatic differentation for expected values](https://dl.acm.org/doi/10.1145/3571198).
 #
@@ -216,7 +216,7 @@ new_trace["alpha"]
 # ## Marginalization of random choices
 
 # %% [markdown]
-# Marginalization provides a way to hide random choices. Exact marginalization involves computing integrals, which is intractable. GenJAX supports _pseudo_-marginalization [via stochastic probabilities](https://dl.acm.org/doi/abs/10.1145/3591290). To support _pseudo_-marginalization, constructing a marginal requires that you provide a proposal:
+# Marginalization provides a way to hide random choices. Exact marginalization involves computing integrals, which is often intractable for complex distributions. GenJAX supports _pseudo_-marginalization [via stochastic probabilities](https://dl.acm.org/doi/abs/10.1145/3591290). To support _pseudo_-marginalization, constructing a marginal requires that you provide a proposal:
 
 
 # %%
