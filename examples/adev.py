@@ -1,4 +1,3 @@
-from jax import make_jaxpr
 from jax.lax import cond
 
 from genjax.adev import Dual, expectation, flip_enum

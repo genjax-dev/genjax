@@ -1,10 +1,7 @@
 import jax
-import jax.numpy as jnp
-import jax.tree_util as jtu
-from jax import make_jaxpr
 from jax.lax import cond
 
-from genjax import bernoulli, enum, modular_vmap
+from genjax import bernoulli, enum
 
 
 def prog():

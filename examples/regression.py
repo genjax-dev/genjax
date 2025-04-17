@@ -2,7 +2,7 @@ import jax.numpy as jnp
 from jax import make_jaxpr
 from jax.numpy import array, sum, zeros
 
-from genjax import gen, normal, trace
+from genjax import gen, normal
 
 
 @gen
