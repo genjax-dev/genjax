@@ -116,8 +116,9 @@ dot_plot(x_range, y_samples)
 
 # %% [markdown]
 # The `@gen` decorator creates a _parallel generative function_, a datatype which
-# implements a probabilistic interface which exposes sampling and density
-# computation called _the generative function interface_, or GFI for short.
+# implements a probabilistic interface that provides automation
+# for sampling and density computation.
+# The interface is called _the generative function interface_, or GFI for short.
 
 # %%
 isinstance(regression, GFI)
@@ -130,8 +131,20 @@ isinstance(regression, GFI)
 
 # %%
 # Sample a trace.
-sample_curve = regression.simulate((x_range,))
-sample_curve
+trace = regression.simulate((x_range,))
+trace
+
+# %% [markdown]
+# A _trace_ is a recording of the execution of a
+# parallel generative function. It contains the random choices
+# which were sampled during the execution, as well as other
+# data associated with the execution (the arguments, the
+# return value).
+#
+# Importantly, a trace also contains a quantity called _the score_, which is a recording of $1 / P(\text{random choices})$.
+
+# %%
+trace.get_score()
 
 # %% [markdown]
 # ### `GFI.assess`
@@ -139,20 +152,47 @@ sample_curve
 # %%
 # Evaluate the density of random choices, and
 # the return value given those choices.
-choices = sample_curve.get_choices()
+choices = trace.get_choices()
 density, retval = regression.assess((x_range,), choices)
 density
+
+# %% [markdown]
+# The `assess` method gives you access to
+# $P(\text{random choices})$. `simulate` and `assess`
+# pair together to allow you to implement _importance samplers_,
+# which we'll see in a moment.
 
 # %% [markdown]
 # ### `GFI.update`
 
 # %%
-# Change a trace by changing the probabilistic program
-# which generated it, or the values of random choices,
+# Reweight a trace by changing the arguments to the
+# probabilistic program which generated it, or
+# change the values of random choices (or both!),
 # and compute a density ratio for the change.
 new_choices = {"alpha": jnp.array([0.3, 1.0, 2.0])}
-new_trace, w, _, _ = sample_curve.update((x_range,), new_choices)
+new_trace, w, _, _ = trace.update((x_range,), new_choices)
 new_trace["alpha"]
+
+# %% [markdown]
+# The `update` method allows you to modify or reweight an
+# existing trace. This method is immensely useful when you wish
+# to implement algorithms that make changes to samples, like
+# Markov chain Monte Carlo (MCMC), or variants of sequential Monte Carlo (SMC).
+
+# %% [markdown]
+# ### Why the GFI?
+#
+# The methods of the GFI are focused on the expression
+# of approximations
+# to inference problems by using Monte Carlo sampling and
+# properly-weighted approximations. This sentence is strongly
+# already an "if you know you know" description: the gist is,
+# inference problems are often intractable for analytical
+# methods, and Monte Carlo is a broad class of approximation
+# methods. The GFI focuses on automation support for a subclass
+# of Monte Carlo that the creators of GenJAX have found to be
+# particularly useful in their own work.
 
 # %% [markdown]
 # ## Marginalization of random choices
@@ -406,7 +446,7 @@ make_jaxpr(loss.grad_estimate)(0.1)
 # possible: there are known sharp edges when using GenJAX's
 # automation, which we tabulate below.
 #
-# ### Incompatibilities between features
+# ### Known incompatibilities between features
 #
 # #### `vmap` within ADEV programs
 #
