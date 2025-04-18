@@ -16,6 +16,7 @@ format:
       theme: cosmo
       self-contained: true
       code-line-numbers: false
+      code-block-border-left: true
       grid:
           margin-width: 350px
       execute:

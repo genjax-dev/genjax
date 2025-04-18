@@ -1,7 +1,7 @@
 # %% [markdown]
 # ---
 # title: "The Generative Cookbook"
-# subtitle: "A wondrous guide designed to guide the enthusiast (both human and robotic) in the usage of the magnanimous"
+# subtitle: "A wondrous guide designed to shepherd the enthusiast (both human and robotic) in the usage of the magnanimous"
 # bibliography: references.bib
 # ---
 
