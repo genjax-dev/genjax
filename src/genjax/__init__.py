@@ -31,11 +31,13 @@ from .core import (
     trace,
 )
 from .distributions import (
+    attach_discretization,
     bernoulli,
     beta,
     categorical,
     flip,
     normal,
+    normal_grid_around_mean,
 )
 from .enum import enum
 from .sp import (
@@ -65,10 +67,12 @@ __all__ = [
     "flip_enum",
     "normal_reparam",
     "normal_reinforce",
+    "attach_discretization",
     "gen",
     "get_choices",
     "marginal",
     "modular_vmap",
+    "normal_grid_around_mean",
     "normal",
     "tfp_distribution",
     "trace",

@@ -1,21 +1,32 @@
 import jax.numpy as jnp
 from jax import make_jaxpr
 
-from genjax import enum, flip, gen, normal, trace
+from genjax import (
+    attach_discretization,
+    enum,
+    flip,
+    gen,
+    normal,
+    normal_grid_around_mean,
+    trace,
+)
 from genjax import modular_vmap as vmap
+
+normal = attach_discretization(
+    normal,
+    normal_grid_around_mean(3, 1000),
+)
 
 
 @gen
 def model():
-    v = normal(0.3, 1.0) @ "v"
-    x = normal(v, 1.0) @ "y"
+    v = normal(0.3, 3.0) @ "v"
+    x = normal(v, 0.3) @ "y"
     return v
 
 
-print(model.make_jaxpr())
-new_args, new_model = model.discretize((), 500)
-print(new_model.make_jaxpr(*new_args))
-measure_program = new_model.project(new_args, {"y": 3.0})
-print(make_jaxpr(measure_program)())
-scores, (x, _) = enum(measure_program)()
-print(x["v"][jnp.argmax(scores)])
+measure_program = model.project((), {"y": 3.0})
+discretized = measure_program.discretize((), "v")
+print(make_jaxpr(discretized.enum)(()))
+scores, (v, _) = discretized.enum(())
+print(v["v"][jnp.argmax(scores)])

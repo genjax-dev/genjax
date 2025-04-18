@@ -16,11 +16,11 @@ from jaxtyping import ArrayLike
 from tensorflow_probability.substrates import jax as tfp
 
 from .core import (
-    Distribution,
     ElaboratedPrimitive,
     Environment,
     Pytree,
     assume_p,
+    distribution,
     initial_style_bind,
     modular_vmap,
     stage,
@@ -592,7 +592,7 @@ class CategoricalEnumParallel(ADEVPrimitive):
 
 categorical_enum_parallel = CategoricalEnumParallel()
 
-flip_reinforce = Distribution(
+flip_reinforce = distribution(
     reinforce(
         bernoulli.sample,
         bernoulli.logpdf,
@@ -600,7 +600,7 @@ flip_reinforce = Distribution(
     bernoulli.logpdf,
 )
 
-geometric_reinforce = Distribution(
+geometric_reinforce = distribution(
     reinforce(
         geometric.sample,
         geometric.logpdf,
@@ -608,7 +608,7 @@ geometric_reinforce = Distribution(
     geometric.logpdf,
 )
 
-normal_reinforce = Distribution(
+normal_reinforce = distribution(
     reinforce(
         normal.sample,
         normal.logpdf,
@@ -644,7 +644,7 @@ class NormalREPARAM(ADEVPrimitive):
         return kdual(Dual(primal_out, tangent_out))
 
 
-normal_reparam = Distribution(
+normal_reparam = distribution(
     NormalREPARAM(),
     normal.logpdf,
 )
