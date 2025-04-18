@@ -1,8 +1,9 @@
 # %% [markdown]
 # ---
 # title: "The Generative Cookbook"
-# subtitle: "A wondrous guide designed to shepherd the enthusiast (both human and robotic) in the usage of the magnanimous"
+# subtitle: "A wondrous guide designed to shepherd the (human or robotic) enthusiast in the usage of the magnanimous"
 # bibliography: references.bib
+# copyright: "Copyright McCoy Reynolds Becker & MIT Probabilistic Computing Project. All Rights Reserved."
 # ---
 
 # %% [markdown]
@@ -13,20 +14,23 @@
 # (**Probabilistic programming language**) GenJAX is a probabilistic programming
 # language (PPL): a system which provides automation for writing programs
 # which perform computations on probability distributions, including sampling,
-# variational approximation, gradient estimation for expected values, and more.
+# variational approximation, gradient estimation, and more.
 #
 # (**With programmable inference**) The design of GenJAX is centered
-# on _programmable inference_: automation which allows users to express and
+# on _programmable inference_ [@mansinghka_probabilistic_2018]: automation which allows users to express and
 # customize Bayesian inference algorithms (algorithms for computing with
 # posterior distributions: "_x_ affects _y_, and I observe _y_, what are my
-# new beliefs about _x_?"). Programmable inference includes advanced forms
+# new beliefs about _x_?"). Programmable inference supports advanced forms
 # of Monte Carlo and variational inference methods.
 #
-# GenJAX's automation is based on two key concepts: _parallel generative functions_ (GenJAX's version of probabilistic programs) and _traces_ (samples from probabilistic programs). GenJAX provides:
+# Following [@cusumano-towner_gen_2019], GenJAX's automation is based on two key concepts: _parallel generative functions_ (GenJAX's version of probabilistic programs) and _traces_ (samples from probabilistic programs). GenJAX provides:
 #
 # * Modeling language automation for constructing complex probability distributions.
 #
-# * Inference automation for constructing Monte Carlo samplers using convenient idioms (programs expressed by creating and modifying traces), and [variational inference automation](https://dl.acm.org/doi/10.1145/3656463)([artifact](https://github.com/femtomc/programmable-vi-pldi-2024)) using [new extensions to automatic differentation for expected values](https://dl.acm.org/doi/10.1145/3571198).
+# * Inference automation for constructing Monte Carlo samplers
+# and variational inference algorithms, including advanced
+# algorithms which utilize marginalization, or complex
+# variational objectives and gradient estimation strategies.
 #
 # (**Fully vectorized & compatible with JAX**) All of GenJAX's automation is
 # compatible with JAX, implying that any program written in GenJAX can
@@ -90,7 +94,6 @@ def dot_plot(x, y, aspect_ratio=None):
 # probably?"
 #
 # Even a regression model follows this pattern.
-#
 # GenJAX supports convenient syntax to express programs
 # that denote probability distributions (over these worlds!).
 # The program below defines a polynomial regression model with

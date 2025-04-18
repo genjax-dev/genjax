@@ -7,16 +7,17 @@ website:
 
 format:
   html:
+      theme:
+          light: [cosmo, light.scss]
       toc: true
       toc-location: right
       css: custom.css
       code-overflow: wrap
       highlight-style: ayu
       sidebar: false
-      theme: cosmo
       self-contained: true
       code-line-numbers: false
-      code-block-border-left: true
+      code-color: black
       grid:
           margin-width: 350px
       execute:

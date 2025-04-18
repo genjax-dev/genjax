@@ -1395,7 +1395,19 @@ def gen(fn: Callable[..., R]) -> Fn[R]:
 
 
 class Algorithm(Generic[X], GFI[X, X]):
-    pass
+    def update(
+        self,
+        args_,
+        tr: Trace[X, X],
+        x_: X,
+    ) -> tuple[Trace[X, X], Weight, X, X]:
+        log_density_, _ = self.assess(args_, x_)
+        return (
+            Trace(self, args_, x_, x_, -log_density_),
+            log_density_ + tr.get_score(),
+            x_,
+            tr.get_retval(),
+        )
 
 
 @Pytree.dataclass
@@ -1425,14 +1437,6 @@ class Importance(Generic[R], Algorithm[dict[str, Any]]):
     def assess(self, args, x: X) -> tuple[Weight, X]:
         raise NotImplementedError
 
-    def update(
-        self,
-        args_,
-        tr: Trace[X, X],
-        x_: X,
-    ) -> tuple[Trace[X, X], Weight, X, X]:
-        raise NotImplementedError
-
 
 @Pytree.dataclass
 class Marginal(Generic[R, X], GFI[X, X]):
@@ -1456,7 +1460,7 @@ class Marginal(Generic[R, X], GFI[X, X]):
             args,
             marginalized,
             marginalized,
-            tr.get_score() - weight,
+            tr.get_score() + weight,
         )
 
     def assess(
@@ -1470,7 +1474,7 @@ class Marginal(Generic[R, X], GFI[X, X]):
         choices = tr.get_choices()
         choices[self.addr] = x
         weight, _ = self.gen_fn.assess(args, choices)
-        return weight - tr.get_score(), x
+        return weight + tr.get_score(), x
 
     def update(
         self,
@@ -1478,7 +1482,13 @@ class Marginal(Generic[R, X], GFI[X, X]):
         tr: Trace[X, X],
         x_: X,
     ) -> tuple[Trace[X, X], Weight, X, X]:
-        raise NotImplementedError
+        log_density_, _ = self.assess(args_, x_)
+        return (
+            Trace(self, args_, x_, x_, -log_density_),
+            log_density_ + tr.get_score(),
+            x_,
+            tr.get_retval(),
+        )
 
 
 def marginal(

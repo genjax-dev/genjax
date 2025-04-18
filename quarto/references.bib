@@ -5,7 +5,7 @@
 	shorttitle = {{ADEV}},
 	url = {https://dl.acm.org/doi/10.1145/3571198},
 	doi = {10.1145/3571198},
-	abstract = {Optimizing the expected values of probabilistic processes is a central problem in computer science and its applications, arising in fields ranging from artificial intelligence to operations research to statistical computing. Unfortunately, automatic differentiation techniques developed for deterministic programs do not in general compute the correct gradients needed for widely used solutions based on gradient-based optimization.
+	abstract = {Optimizing the expected values of probabilistic processes is a central problem in computer science and its applications, arising in fields ranging from artificial intelligence to operations research to statistical computing. Unfortunately, automatic differentiation techniques developed for deterministic programs do not in general compute the correct gradients needed for widely used solutions based on gradient-based optimization.  
 
 In this paper, we present ADEV, an extension to forward-mode AD that correctly differentiates the expectations of probabilistic processes represented as programs that make random choices. Our algorithm is a source-to-source program transformation on an expressive, higher-order language for probabilistic computation, with both discrete and continuous probability distributions. The result of our transformation is a new probabilistic program, whose expected return value is the derivative of the original program’s expectation. This output program can be run to generate unbiased Monte Carlo estimates of the desired gradient, that can be used within the inner loop of stochastic gradient descent. We prove ADEV correct using logical relations over the denotations of the source and target probabilistic programs. Because it modularly extends forward-mode AD, our algorithm lends itself to a concise implementation strategy, which we exploit to develop a prototype in just a few dozen lines of Haskell (https://github.com/probcomp/adev).},
 	number = {POPL},
@@ -26,6 +26,7 @@ In this paper, we present ADEV, an extension to forward-mode AD that correctly d
 	abstract = {Compared to the wide array of advanced Monte Carlo methods supported by modern probabilistic programming languages (PPLs), PPL support for variational inference (VI) is less developed: users are typically limited to a predefined selection of variational objectives and gradient estimators, which are implemented monolithically (and without formal correctness arguments) in PPL backends. In this paper, we propose a more modular approach to supporting variational inference in PPLs, based on compositional program transformation. In our approach, variational objectives are expressed as programs, that may employ first-class constructs for computing densities of and expected values under user-defined models and variational families. We then transform these programs systematically into unbiased gradient estimators for optimizing the objectives they define. Our design makes it possible to prove unbiasedness by reasoning modularly about many interacting concerns in PPL implementations of variational inference, including automatic differentiation, density accumulation, tracing, and the application of unbiased gradient estimation strategies. Additionally, relative to existing support for VI in PPLs, our design increases expressiveness along three axes: (1) it supports an open-ended set of user-defined variational objectives, rather than a fixed menu of options; (2) it supports a combinatorial space of gradient estimation strategies, many not automated by today’s PPLs; and (3) it supports a broader class of models and variational families, because it supports constructs for approximate marginalization and normalization (previously introduced for Monte Carlo inference). We implement our approach in an extension to the Gen probabilistic programming system (genjax.vi, implemented in JAX), and evaluate our automation on several deep generative modeling tasks, showing minimal performance overhead vs. hand-coded implementations and performance competitive with well-established open-source PPLs.},
 	number = {PLDI},
 	urldate = {2025-04-17},
+	journal = {Reproduction Packager for Article "Probabilistic Programming with Programmable Variational Inference"},
 	author = {Becker, McCoy R. and Lew, Alexander K. and Wang, Xiaoyan and Ghavami, Matin and Huot, Mathieu and Rinard, Martin C. and Mansinghka, Vikash K.},
 	month = jun,
 	year = {2024},
@@ -66,4 +67,21 @@ In this paper, we present ADEV, an extension to forward-mode AD that correctly d
 	year = {2019},
 	pages = {221--236},
 	file = {Full Text PDF:/Users/femtomc/Zotero/storage/KSCPID2Z/Cusumano-Towner et al. - 2019 - Gen a general-purpose probabilistic programming system with programmable inference.pdf:application/pdf},
+}
+
+@inproceedings{mansinghka_probabilistic_2018,
+	address = {New York, NY, USA},
+	series = {{PLDI} 2018},
+	title = {Probabilistic programming with programmable inference},
+	isbn = {978-1-4503-5698-5},
+	url = {https://doi.org/10.1145/3192366.3192409},
+	doi = {10.1145/3192366.3192409},
+	abstract = {We introduce inference metaprogramming for probabilistic programming languages, including new language constructs, a formalism, and the rst demonstration of e ectiveness in practice. Instead of relying on rigid black-box inference algorithms hard-coded into the language implementation as in previous probabilistic programming languages, infer- ence metaprogramming enables developers to 1) dynamically decompose inference problems into subproblems, 2) apply in- ference tactics to subproblems, 3) alternate between incorpo- rating new data and performing inference over existing data, and 4) explore multiple execution traces of the probabilis- tic program at once. Implemented tactics include gradient- based optimization, Markov chain Monte Carlo, variational inference, and sequental Monte Carlo techniques. Inference metaprogramming enables the concise expression of proba- bilistic models and inference algorithms across diverse elds, such as computer vision, data science, and robotics, within a single probabilistic programming language.},
+	urldate = {2025-04-18},
+	booktitle = {Proceedings of the 39th {ACM} {SIGPLAN} {Conference} on {Programming} {Language} {Design} and {Implementation}},
+	publisher = {Association for Computing Machinery},
+	author = {Mansinghka, Vikash K. and Schaechtle, Ulrich and Handa, Shivam and Radul, Alexey and Chen, Yutian and Rinard, Martin},
+	month = jun,
+	year = {2018},
+	pages = {603--616},
 }
