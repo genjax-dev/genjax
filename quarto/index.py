@@ -1,6 +1,11 @@
 # %% [markdown]
-#
-# <br>
+# ---
+# title: "The Generative Cookbook"
+# subtitle: "A wondrous guide designed to guide the enthusiast (both human and robotic) in the usage of the magnanimous"
+# bibliography: references.bib
+# ---
+
+# %% [markdown]
 # <p align="center">
 # <img width="500px" src="./assets/logo.png"/>
 # </p>
@@ -72,8 +77,6 @@ def dot_plot(x, y, aspect_ratio=None):
 
 # %% [markdown]
 # ## Modeling & inference with GenJAX
-
-# %% [markdown]
 #
 # Writing a probabilistic model involves _telling a story
 # about how the data might have been generated_. Inference
@@ -216,7 +219,7 @@ new_trace["alpha"]
 # ## Marginalization of random choices
 
 # %% [markdown]
-# Marginalization provides a way to hide random choices. Exact marginalization involves computing integrals, which is often intractable for complex distributions. GenJAX supports _pseudo_-marginalization [via stochastic probabilities](https://dl.acm.org/doi/abs/10.1145/3591290). To support _pseudo_-marginalization, constructing a marginal requires that you provide a proposal:
+# Marginalization provides a way to hide random choices. Exact marginalization involves computing integrals, which is often intractable for complex distributions. GenJAX supports _pseudo_-marginalization via stochastic probabilities [@lew_probabilistic_2023]. To support _pseudo_-marginalization, constructing a marginal requires that you provide a proposal:
 
 
 # %%
@@ -243,7 +246,7 @@ def proposal(*args):
 # ## Automatic differentiation of expected values
 
 # %% [markdown]
-# GenJAX also exposes functionality to support _unbiased gradient estimation_ of expected value objectives.
+# GenJAX also exposes functionality to support _unbiased gradient estimation_ of expected value objectives [@lew_adev_2023].
 
 
 # %%
@@ -346,7 +349,11 @@ dot_plot(jnp.arange(500), thetas)
 # %% [markdown]
 # ### What's programmable about it?
 #
-# Users are allowed to change their objective function (by writing programs which denote objectives), and they are also allowed to change the unbiased gradient estimator strategy for the objective.
+# In programmable variational inference
+# [@becker_probabilistic_2024], users are allowed to change
+# their objective function (by writing programs which
+# denote objectives), and they are also allowed to change
+# the unbiased gradient estimator strategy for the objective.
 #
 # For instance, instead of using `normal_reinforce`, we could use `normal_reparam`.
 
