@@ -27,6 +27,5 @@ def model():
 
 measure_program = model.project((), {"y": 3.0})
 discretized = measure_program.discretize((), "v")
-print(make_jaxpr(discretized.enum)(()))
 scores, (v, _) = discretized.enum(())
 print(v["v"][jnp.argmax(scores)])
