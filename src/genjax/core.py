@@ -1710,7 +1710,7 @@ class Distribution(Generic[X], RGFI[X, X]):
         args: tuple[Any, ...],
         x: X | None,
     ) -> RMI[X, X]:
-        return RMDistribution(self, x) if x else self
+        return RMDistribution(self, x) if x is not None else self
 
     def blanket(
         self,

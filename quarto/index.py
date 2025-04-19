@@ -45,7 +45,7 @@ import jax.numpy as jnp
 import jax.random as jrand
 import jax.tree_util as jtu
 import treescope
-from jax import make_jaxpr
+from jax import make_jaxpr, vmap
 from jax.lax import cond, scan
 from jax.numpy import array, sum
 
@@ -135,7 +135,7 @@ def regression(x):
 # Sample a curve.
 x_range = jnp.linspace(-1, 1, 100)
 y_samples = regression.simulate((x_range,)).get_retval()
-dot_plot(x_range, y_samples)
+dot_plot(x_range, y_samples, aspect_ratio=1)
 
 # %% [markdown]
 # The `@gen` decorator creates a _parallel generative function_,
@@ -413,9 +413,6 @@ dot_plot(jnp.arange(500), thetas)
 # on modern hardware.
 
 # %% [markdown]
-# ## Advanced topics: more on the GFI
-
-# %% [markdown]
 # ## Experimental: the reflective measure interface
 #
 # The GFI is a design for probabilistic computation based on "black box"
@@ -551,7 +548,8 @@ make_jaxpr(meas.lower_enum(()))()
 # `RMI[...]` in the `enum` language.
 #
 # Combined with JAX's staged metaprogramming, this allows
-# zero-cost implementation of brute force exact enumeration
+# effective implementations of brute force exact
+# enumeration
 # (provided as automation via the `enum` language).
 
 # %% [markdown]
@@ -563,7 +561,7 @@ make_jaxpr(meas.lower_enum(()))()
 # %%
 normal = attach_discretization(
     normal,
-    normal_grid_around_mean(2, 50),
+    normal_grid_around_mean(4, 200),
 )
 
 
@@ -595,17 +593,29 @@ discretized.make_jaxpr()
 # Now, solutions to inference problems for this new model won't
 # apply directly to our original model: by introducing
 # our discretization -- we've changed the distribution!
-# We'll cover _translation_ later, and we'll see how to convert
-# solutions to discretized problems back to the original model.
+# Additionally, we have to think carefully about _the properties
+# of our solution representation_ (for instance, MAPs won't
+# necessarily compose with properly weighted
+# representations).
+# We'll consider _translation_ later, and we'll see how to
+# convert certain types of solutions to discretized problems
+# back to the original model.
 #
 # First, a few lines to construct a MAP using the RMI & `enum`.
 
-# %%
-meas = discretized.project((), {"v": 2.0})
-exact_MAP(*meas.enum(()))
 
-# %% [markdown]
-# ### Interactive inference programming
+# %%
+# | column: margin
+# | fig-cap: "Exact MAP values for a grid of observations."
+def MAP_cond(v):
+    meas = discretized.project((), {"v": v})
+    _, chm = exact_MAP(*meas.enum(()))
+    return chm["x"]
+
+
+x_range = jnp.arange(0, 3, 0.1)
+y_range = vmap(MAP_cond)(x_range)
+dot_plot(x_range, y_range, aspect_ratio=1)
 
 # %% [markdown]
 # ## Under the hood: PJAX
@@ -658,6 +668,8 @@ def loss(mu):
 
 make_jaxpr(loss.grad_estimate)(0.1)
 
+# %% [markdown]
+# ## Advanced: GFI theory
 
 # %% [markdown]
 # ## Future work & sharp edges
