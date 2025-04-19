@@ -1390,7 +1390,7 @@ class RMI(Generic[X, R], Pytree):
     ) -> "tuple[Flowing, RMI[X, R] | None]":
         raise NotImplementedError
 
-    def addresses(
+    def sel(
         self,
         args: tuple[Any, ...],
     ) -> S:
@@ -1643,7 +1643,7 @@ class Distribution(Generic[X], RGFI[X, X]):
         else:
             return Flow.pure(tr.get_retval()), None
 
-    def addresses(
+    def sel(
         self,
         args: tuple[Any, ...],
     ) -> S:
@@ -2166,7 +2166,7 @@ class Fn(
         return flow_retval, Fn(Flow.lift(_))
 
     @staticmethod
-    def eval_jaxpr_addresses(
+    def eval_jaxpr_sel(
         jaxpr: Jaxpr,
         consts: list[Any],
         args: list[Any],
@@ -2189,7 +2189,7 @@ class Fn(
                 in_tree = inner_params["in_tree"]
                 num_consts = inner_params["num_consts"]
                 (gen_fn, args) = jtu.tree_unflatten(in_tree, args[num_consts:])
-                subaddrs = gen_fn.addresses(args)
+                subaddrs = gen_fn.sel(args)
                 addrs[addr] = subaddrs
                 tree_outvals = refl_trace(addr, gen_fn, args)
                 outvals = jtu.tree_leaves(tree_outvals)
@@ -2204,13 +2204,13 @@ class Fn(
 
         return addrs
 
-    def addresses(
+    def sel(
         self,
         args: tuple[Any, ...],
     ) -> S:
         closed_jaxpr, (_, _, out_tree) = self._stage(args)
         jaxpr, consts = closed_jaxpr.jaxpr, closed_jaxpr.literals
-        return sel(Fn.eval_jaxpr_addresses(jaxpr, consts, list(args)))
+        return sel(Fn.eval_jaxpr_sel(jaxpr, consts, list(args)))
 
 
 @Pytree.dataclass
