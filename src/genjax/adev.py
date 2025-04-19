@@ -16,13 +16,13 @@ from jaxtyping import ArrayLike
 from tensorflow_probability.substrates import jax as tfp
 
 from .core import (
-    Distribution,
     ElaboratedPrimitive,
     Environment,
     Pytree,
+    assume_p,
+    distribution,
     initial_style_bind,
     modular_vmap,
-    sample_p,
     stage,
 )
 from .distributions import bernoulli, categorical, geometric, normal
@@ -78,7 +78,7 @@ def sample_primitive(adev_prim: ADEVPrimitive, *args):
     def _adev_prim_call(adev_prim, *args):
         return adev_prim.sample(*args)
 
-    return initial_style_bind(sample_p)(_adev_prim_call)(adev_prim, *args)
+    return initial_style_bind(assume_p)(_adev_prim_call)(adev_prim, *args)
 
 
 ####################
@@ -157,7 +157,7 @@ class ADEVInterpreter(Pytree):
     to compute forward mode AD.
 
     When this interpreter hits
-    the `sample_p` primitive, it creates a pair of continuation closures
+    the `assume_p` primitive, it creates a pair of continuation closures
     which is passed to the gradient strategy which the primitive is using.
     """
 
@@ -183,7 +183,7 @@ class ADEVInterpreter(Pytree):
                 in_vals = jax_util.safe_map(pure_env.read, eqn.invars)
                 subfuns, params = eqn.primitive.get_bind_params(eqn.params)
                 args = subfuns + in_vals
-                if eqn.primitive is sample_p:
+                if eqn.primitive is assume_p:
                     pass
                 else:
                     outs = eqn.primitive.bind(*args, **params)
@@ -209,8 +209,8 @@ class ADEVInterpreter(Pytree):
                     duals = subfuns + in_vals
 
                     primitive, inner_params = ElaboratedPrimitive.unwrap(eqn.primitive)
-                    # Our sample_p primitive.
-                    if primitive is sample_p:
+                    # Our assume_p primitive.
+                    if primitive is assume_p:
                         dual_env = dual_env.copy()
                         pure_env = Dual.tree_primal(dual_env)
 
@@ -592,7 +592,7 @@ class CategoricalEnumParallel(ADEVPrimitive):
 
 categorical_enum_parallel = CategoricalEnumParallel()
 
-flip_reinforce = Distribution(
+flip_reinforce = distribution(
     reinforce(
         bernoulli.sample,
         bernoulli.logpdf,
@@ -600,7 +600,7 @@ flip_reinforce = Distribution(
     bernoulli.logpdf,
 )
 
-geometric_reinforce = Distribution(
+geometric_reinforce = distribution(
     reinforce(
         geometric.sample,
         geometric.logpdf,
@@ -608,7 +608,7 @@ geometric_reinforce = Distribution(
     geometric.logpdf,
 )
 
-normal_reinforce = Distribution(
+normal_reinforce = distribution(
     reinforce(
         normal.sample,
         normal.logpdf,
@@ -644,7 +644,7 @@ class NormalREPARAM(ADEVPrimitive):
         return kdual(Dual(primal_out, tangent_out))
 
 
-normal_reparam = Distribution(
+normal_reparam = distribution(
     NormalREPARAM(),
     normal.logpdf,
 )

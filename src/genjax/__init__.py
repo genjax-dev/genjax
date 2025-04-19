@@ -19,27 +19,32 @@ from .adev import (
 )
 from .core import (
     GFI,
-    Algorithm,
     Distribution,
     Fn,
-    Importance,
-    Marginal,
     Pytree,
     Vmap,
     gen,
     get_choices,
-    marginal,
     modular_vmap,
     seed,
     tfp_distribution,
     trace,
 )
 from .distributions import (
+    attach_discretization,
     bernoulli,
     beta,
     categorical,
     flip,
     normal,
+    normal_grid_around_mean,
+)
+from .enum import enum
+from .sp import (
+    Algorithm,
+    Importance,
+    Marginal,
+    marginal,
 )
 
 __all__ = [
@@ -54,6 +59,7 @@ __all__ = [
     "Pytree",
     "Marginal",
     "beta",
+    "enum",
     "seed",
     "categorical",
     "expectation",
@@ -61,10 +67,12 @@ __all__ = [
     "flip_enum",
     "normal_reparam",
     "normal_reinforce",
+    "attach_discretization",
     "gen",
     "get_choices",
     "marginal",
     "modular_vmap",
+    "normal_grid_around_mean",
     "normal",
     "tfp_distribution",
     "trace",

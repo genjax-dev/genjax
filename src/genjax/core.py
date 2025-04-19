@@ -22,7 +22,6 @@ from jax.extend.core import ClosedJaxpr, Jaxpr, Literal, Primitive, Var
 from jax.interpreters import ad, batching, mlir
 from jax.interpreters import partial_eval as pe
 from jax.lax import cond_p, scan, scan_p, switch
-from jax.scipy.special import logsumexp
 from jax.util import safe_map, split_list
 from numpy import dtype
 from tensorflow_probability.substrates import jax as tfp
@@ -329,8 +328,17 @@ class ElaboratedPrimitive(Primitive):
             return primitive == other
 
     @classmethod
-    def rebind(cls, primitive: Primitive, *args, **params):
-        return primitive.bind(*args, **params)
+    def rebind(
+        cls,
+        primitive: Primitive,
+        inner_params,
+        params,
+        *args,
+    ):
+        if isinstance(primitive, InitialStylePrimitive):
+            return ElaboratedPrimitive(primitive, **inner_params).bind(*args, **params)
+        else:
+            return primitive.bind(*args, **params)
 
 
 def batch_fun(fun: lu.WrappedFun, axis_data, in_dims):
@@ -419,6 +427,7 @@ def initial_style_bind(
                 in_tree=in_tree,
                 out_tree=out_tree,
                 num_consts=len(jaxpr.literals),
+                yes_kwargs=bool(kwargs),
                 **params,
             )
             outs = elaborated_prim.bind(
@@ -471,12 +480,13 @@ def static_dim_length(in_axes, args: tuple[Any, ...]) -> int | None:
 
 class style:
     CYAN = "\033[36m"
+    GREEN = "\033[32m"
     BOLD = "\033[1m"
     RESET = "\033[0m"
 
 
-sample_p = InitialStylePrimitive(
-    f"{style.BOLD}{style.CYAN}pjax.sample{style.RESET}",
+assume_p = InitialStylePrimitive(
+    f"{style.BOLD}{style.CYAN}pjax.assume{style.RESET}",
 )
 log_density_p = InitialStylePrimitive(
     f"{style.BOLD}{style.CYAN}pjax.log_density{style.RESET}",
@@ -515,17 +525,21 @@ global_counter = GlobalKeyCounter()
 _fake_key = jrand.key(1)
 
 
-def sample_binder(
+def assume_binder(
     keyful_sampler: Callable[..., Any],
     name: str | None = None,
     batch_shape: tuple[int, ...] = (),
+    support: Callable[..., Any] | None = None,
 ):
-    keyful_with_batch_shape = partial(keyful_sampler, sample_shape=batch_shape)
+    keyful_with_batch_shape = partial(
+        keyful_sampler,
+        sample_shape=batch_shape,
+    )
 
-    def sampler(*args, **kwargs):
-        # We're playing a trick here by allowing users to invoke sample_p
+    def assume(*args, **kwargs):
+        # We're playing a trick here by allowing users to invoke assume_p
         # without a key. So we hide it inside, and we pass this as the
-        # impl of `sample_p`.
+        # impl of `assume_p`.
         #
         # This is problematic for JIT, which will cache the statically
         # generated key. But it's obvious to the user - their returned
@@ -559,7 +573,7 @@ def sample_binder(
                 )
                 assert isinstance(outer_batch_dim, tuple)
                 new_batch_shape = outer_batch_dim + batch_shape
-                v = sample_binder(
+                v = assume_binder(
                     keyful_sampler,
                     name=name,
                     batch_shape=new_batch_shape,
@@ -569,25 +583,26 @@ def sample_binder(
                 raise NotImplementedError()
 
         lowering_msg = (
-            "JAX is attempting to lower the `pjax.sample_p` primitive to MLIR. "
+            "JAX is attempting to lower the `pjax.assume_p` primitive to MLIR. "
             "This will bake a PRNG key into the MLIR code, resulting in deterministic behavior. "
             "Instead, use `pjax.seed` to transform your function into one which allows keys to be passed in. "
-            "You can do this at any level of your computation above the `sample_p` invocation."
+            "You can do this at any level of your computation above the `assume_p` invocation."
         )
         lowering_exception = LoweringSamplePrimitiveToMLIRException(
             lowering_msg,
         )
 
         return initial_style_bind(
-            sample_p,
+            assume_p,
             keyful_sampler=keyful_sampler,
             flat_keyful_sampler=flat_keyful_sampler,
             batch=batch,
+            support=support,
             lowering_warning=lowering_msg,
             lowering_exception=lowering_exception,
-        )(keyless, dist=name)(*args, **kwargs)
+        )(keyless, name=name)(*args, **kwargs)
 
-    return sampler
+    return assume
 
 
 def log_density_binder(
@@ -599,19 +614,71 @@ def log_density_binder(
         # nest vmaps...
         def batch(vector_args, batch_axes, **params):
             n = static_dim_length(batch_axes, tuple(vector_args))
-            v = log_density_binder(
-                jax.vmap(log_density_impl, in_axes=batch_axes), name=name
-            )(*vector_args)
+            num_consts = params["num_consts"]
+            in_tree = jtu.tree_unflatten(params["in_tree"], vector_args[num_consts:])
+            batch_tree = jtu.tree_unflatten(params["in_tree"], batch_axes[num_consts:])
+            if params["yes_kwargs"]:
+                args = in_tree[0]
+                kwargs = in_tree[1]
+                v = log_density_binder(
+                    jax.vmap(
+                        lambda args, kwargs: log_density_impl(*args, **kwargs),
+                        in_axes=batch_tree,
+                    ),
+                    name=name,
+                )(args, kwargs)
+            else:
+                v = log_density_binder(
+                    jax.vmap(
+                        log_density_impl,
+                        in_axes=batch_tree,
+                    ),
+                    name=name,
+                )(*in_tree)
             outvals = (v,)
             out_axes = (0 if n else None,)
             return outvals, out_axes
 
-        return initial_style_bind(
-            log_density_p,
-            batch=batch,
-        )(log_density_impl, dist=name)(*args, **kwargs)
+        return initial_style_bind(log_density_p, batch=batch)(
+            log_density_impl, name=name
+        )(*args, **kwargs)
 
     return log_density
+
+
+def wrap_sampler(
+    keyful_sampler,
+    name: str | None = None,
+    support=None,
+):
+    def _(*args, **kwargs):
+        batch_shape = kwargs.get("shape", ())
+        if "shape" in kwargs:
+            kwargs.pop("shape")
+        return assume_binder(
+            keyful_sampler,
+            name=name,
+            batch_shape=batch_shape,
+            support=support,
+        )(
+            *args,
+            **kwargs,
+        )
+
+    return _
+
+
+def wrap_logpdf(
+    logpdf,
+    name: str | None = None,
+):
+    def _(v, *args, **kwargs):
+        return log_density_binder(
+            logpdf,
+            name=name,
+        )(v, *args, **kwargs)
+
+    return _
 
 
 VarOrLiteral = Var | Literal
@@ -705,7 +772,7 @@ class SeedInterpreter:
             args = subfuns + invals
             primitive, inner_params = ElaboratedPrimitive.unwrap(eqn.primitive)
 
-            if primitive == sample_p:
+            if primitive == assume_p:
                 invals = safe_map(env.read, eqn.invars)
                 args = subfuns + invals
                 flat_keyful_sampler = inner_params["flat_keyful_sampler"]
@@ -831,7 +898,7 @@ class ModularVmapInterpreter:
             args = subfuns + invals
 
             # Probabilistic.
-            if ElaboratedPrimitive.check(eqn.primitive, sample_p):
+            if ElaboratedPrimitive.check(eqn.primitive, assume_p):
                 outvals = eqn.primitive.bind(
                     dummy_arg,
                     *args,
@@ -995,17 +1062,17 @@ def modular_vmap(
     return wrapped
 
 
-# Control the behavior of lowering `sample_p`
+# Control the behavior of lowering `assume_p`
 # to MLIR.
-# `sample_p` should be _eliminated_ by `seed`,
+# `assume_p` should be _eliminated_ by `seed`,
 # otherwise, keys are baked in, yielding deterministic results.
 # These flags send warnings / raise exceptions in case this happens.
 enforce_lowering_exception = True
 lowering_warning = True
 
-########################
-# Generative functions #
-########################
+#######
+# GFI #
+#######
 
 
 @Pytree.dataclass
@@ -1103,6 +1170,112 @@ class GFI(Generic[X, R], Pytree):
         return self.vmap(in_axes=None, axis_size=n)
 
 
+################################
+# Experimental: Reflection GFI #
+################################
+
+
+K = TypeVar("K")
+EnumDSL = Callable[..., K]
+
+Addr = tuple[()] | str
+Selection = tuple[()] | str | tuple[str, ...] | None
+
+
+def match(addr: Addr, sel: Selection):
+    if sel == ():
+        return True, sel
+    elif sel is None:
+        return False, None
+    elif isinstance(sel, str):
+        check = addr == sel
+        return addr == sel, () if check else None
+    else:
+        assert isinstance(sel, tuple) and len(sel) > 0
+        check = addr == sel[0]
+        return check, sel[1:] if check else None
+
+
+class RMI(Generic[X, R], Pytree):
+    @abstractmethod
+    def abstract(
+        self,
+        args,
+    ) -> R:
+        pass
+
+    @abstractmethod
+    def discretize(
+        self,
+        args: tuple[Any, ...],
+        sel: Selection,
+    ) -> "RMI[X, R] | RGFI[X, R]":
+        pass
+
+    @abstractmethod
+    def project(
+        self,
+        args: tuple[Any, ...],
+        x: X | None,
+    ) -> "RMI[X, R]":
+        pass
+
+    # Lower to a representation that supports
+    # enumeration via CPS.
+    def lower_enum(
+        self,
+        args: tuple[Any, ...],
+    ) -> EnumDSL[tuple[X, R]]:
+        raise NotImplementedError
+
+    def reflection_info(self) -> dict[Any, Any]:
+        return {"name": None}
+
+    ###########
+    # Tactics #
+    ###########
+
+    @abstractmethod
+    def generate(
+        self,
+        args,
+    ) -> tuple[Trace[X, R], Weight]:
+        pass
+
+    def enum(
+        self,
+        args,
+    ) -> tuple[Score, tuple[X, R]]:
+        from genjax import enum
+
+        lowered = self.lower_enum(args)
+        return enum(lowered)(*args)
+
+
+class RGFI(Generic[X, R], RMI[X, R], GFI[X, R]):
+    # RGFI is the type of "all generative functions that
+    # also satisfy the RFI" -- these objects are unconditioned (!)
+    # meaning the sampler and weight are trivial.
+    def generate(
+        self,
+        args: tuple[Any, ...],
+    ) -> tuple[Trace[X, R], Weight]:
+        tr = self.simulate(args)
+        return tr, jnp.array(0.0)
+
+    def lower_enum(
+        self,
+        args: tuple[Any, ...],
+    ) -> EnumDSL[tuple[X, R]]:
+        m = self.project(args, None)
+        return m.lower_enum(args)
+
+
+########################
+# Generative functions #
+########################
+
+
 @Pytree.dataclass
 class Thunk(Generic[X, R], Pytree):
     gen_fn: GFI[X, R]
@@ -1113,8 +1286,8 @@ class Thunk(Generic[X, R], Pytree):
 
 
 @Pytree.dataclass
-class Vmap(Generic[X, R], GFI[X, R]):
-    gen_fn: GFI[X, R]
+class Vmap(Generic[X, R], RGFI[X, R]):
+    gen_fn: GFI[X, R] | RGFI[X, R]
     in_axes: int | tuple[int | None, ...] | Sequence[Any] | None
     axis_size: int | None
     axis_name: str | None
@@ -1162,6 +1335,58 @@ class Vmap(Generic[X, R], GFI[X, R]):
         )(args_, tr, x_)
         return new_tr, jnp.sum(w), r, discard
 
+    ##############
+    # Reflection #
+    ##############
+
+    def abstract(self, args) -> R:
+        assert isinstance(self.gen_fn, RGFI)
+        return modular_vmap(
+            self.gen_fn.abstract,
+            in_axes=self.in_axes,
+            axis_size=self.axis_size,
+            axis_name=self.axis_name,
+            spmd_axis_name=self.axis_name,
+        )(args)
+
+    def discretize(
+        self,
+        args: tuple[Any, ...],
+        sel: Selection,
+    ) -> RMI[X, R]:
+        def _(args):
+            assert isinstance(self.gen_fn, RMI)
+            return self.gen_fn.discretize(args, sel)
+
+        new_gf = modular_vmap(
+            _,
+            in_axes=self.in_axes,
+            axis_size=self.axis_size,
+            axis_name=self.axis_name,
+            spmd_axis_name=self.axis_name,
+        )(args)
+        return new_gf
+
+    def project(
+        self,
+        args: tuple[Any, ...],
+        x: X | None,
+    ) -> RMI[X, R]:
+        raise NotImplementedError
+
+    def generate(
+        self,
+        args: tuple[Any, ...],
+    ) -> tuple[Trace[X, R], Weight]:
+        assert isinstance(self.gen_fn, RMI)
+        return modular_vmap(
+            self.gen_fn.generate,
+            in_axes=self.in_axes,
+            axis_size=self.axis_size,
+            axis_name=self.axis_name,
+            spmd_axis_name=self.axis_name,
+        )(args)
+
 
 #################
 # Distributions #
@@ -1169,9 +1394,13 @@ class Vmap(Generic[X, R], GFI[X, R]):
 
 
 @Pytree.dataclass
-class Distribution(Generic[X], GFI[X, X]):
+class Distribution(Generic[X], RGFI[X, X]):
     sample: Callable[..., X] = Pytree.static()
-    logpdf: Callable[[X, Any], Weight] = Pytree.static()
+    logpdf: Callable[..., Weight] = Pytree.static()
+    discretization: Callable[..., "Distribution[X]"] | None = Pytree.static(
+        default=None
+    )
+    name: str | None = Pytree.static(default=None)
 
     def simulate(
         self,
@@ -1203,12 +1432,127 @@ class Distribution(Generic[X], GFI[X, X]):
             tr.get_retval(),
         )
 
+    ##############
+    # Reflection #
+    ##############
 
-# Mostly, just use TFP.
-# This wraps PJAX's `sample_p` correctly.
-def tfp_distribution[X](
-    dist: Callable[..., "tfd.Distribution"],
+    def abstract(
+        self,
+        args,
+    ) -> X:
+        return self.simulate(args).get_retval()
+
+    def discretize(
+        self,
+        args: tuple[Any, ...],
+        sel: Selection,
+    ) -> "Distribution[X]":
+        matched, _ = match((), sel)
+        if matched:
+            assert self.discretization, (
+                f"{self.name} doesn't have a discretization method."
+            )
+            return self.discretization(*args)
+        else:
+            return self
+
+    def project(
+        self,
+        args: tuple[Any, ...],
+        x: X | None,
+    ) -> RMI[X, X]:
+        return RMDistribution(self, x) if x else self
+
+    def lower_enum(
+        self,
+        args: tuple[Any, ...],
+    ) -> EnumDSL[tuple[X, X]]:
+        def _(*args):
+            v = self.rv(*args)
+            return v, v
+
+        return _
+
+    def observe(self, v, *args, **kwargs):
+        from .enum import observe_binder
+
+        return observe_binder(self.logpdf, name=self.name)(v, *args, **kwargs)
+
+    def rv(self, *args, **kwargs):
+        v = self.sample(*args, **kwargs)
+        self.observe(v, *args, **kwargs)
+        return v
+
+    def reflection_info(self):
+        return {
+            "name": self.name,
+        }
+
+
+@Pytree.dataclass
+class RMDistribution(Generic[X], RMI[X, X]):
+    distribution: Distribution[X]
+    constraint: X
+
+    def abstract(self, args) -> X:
+        return self.distribution.simulate(args).get_retval()
+
+    def discretize(
+        self,
+        args: tuple[Any, ...],
+        sel: Selection,
+    ) -> RMI[X, X]:
+        discretized = self.distribution.discretize(args, sel)
+        assert isinstance(discretized, RGFI)
+        return RMDistribution(
+            discretized,
+            self.constraint,
+        )
+
+    def project(
+        self,
+        args: tuple[Any, ...],
+        x: X | None,
+    ) -> RMI[X, X]:
+        assert x is None
+        return self
+
+    def lower_enum(
+        self,
+        args: tuple[Any, ...],
+    ) -> EnumDSL[tuple[X, X]]:
+        def _(*args):
+            v = self.constraint
+            self.distribution.observe(v, *args)
+            return v, v
+
+        return _
+
+    ###########
+    # Tactics #
+    ###########
+
+    def generate(
+        self,
+        args: tuple[Any, ...],
+    ) -> tuple[Trace[X, X], Weight]:
+        p, _ = self.distribution.assess(args, self.constraint)
+        return Trace(self.distribution, args, self.constraint, self.constraint, -p), p
+
+    def reflection_info(self) -> dict[Any, Any]:
+        name = self.distribution.reflection_info()["name"]
+        return {
+            "name": f"RMDistribution({name})",
+        }
+
+
+def distribution[X](
+    sampler: Callable[..., X],
+    logpdf: Callable[..., Any],
+    /,
     name: str | None = None,
+    support: Callable[..., Any] | None = None,
+    discretization: Callable[..., Distribution[X]] | None = None,
 ) -> Distribution[Any]:
     """
     Creates a generative function from a TensorFlow Probability distribution.
@@ -1226,33 +1570,36 @@ def tfp_distribution[X](
     `log_prob` methods to define the generative function's behavior.
     """
 
-    def sampler(*args, **kwargs):
-        def keyful_sampler(key, *args, sample_shape=(), **kwargs):
-            d = dist(*args, **kwargs)
-            return d.sample(seed=key, sample_shape=sample_shape)
-
-        batch_shape = kwargs.get("shape", ())
-        if "shape" in kwargs:
-            kwargs.pop("shape")
-        return sample_binder(
-            keyful_sampler,
-            name=name,
-            batch_shape=batch_shape,
-        )(
-            *args,
-            **kwargs,
-        )
-
-    def logpdf(v, *args, **kwargs):
-        def _log_density(v, *args, **kwargs):
-            d = dist(*args, **kwargs)
-            return d.log_prob(v)
-
-        return log_density_binder(_log_density, name=name)(v, *args, **kwargs)
-
     return Distribution(
         sampler,
         logpdf,
+        discretization,
+        name,
+    )
+
+
+# Mostly, just use TFP.
+# This wraps PJAX's `assume_p` correctly.
+def tfp_distribution[X](
+    dist: Callable[..., "tfd.Distribution"],
+    /,
+    name: str | None = None,
+    support: Callable[..., Any] | None = None,
+    discretization: Callable[..., Distribution[X]] | None = None,
+) -> Distribution[Any]:
+    def keyful_sampler(key, *args, sample_shape=(), **kwargs):
+        d = dist(*args, **kwargs)
+        return d.sample(seed=key, sample_shape=sample_shape)
+
+    def logpdf(v, *args, **kwargs):
+        d = dist(*args, **kwargs)
+        return d.log_prob(v)
+
+    return distribution(
+        wrap_sampler(keyful_sampler, name=name, support=support),
+        wrap_logpdf(logpdf),
+        name=name,
+        discretization=discretization,
     )
 
 
@@ -1322,10 +1669,70 @@ class Update(Generic[R]):
         return r
 
 
-handler_stack: list[Simulate | Assess | Update] = []
+# Generative function trace intrinsic (for staging).
+trace_p = InitialStylePrimitive(
+    f"{style.BOLD}{style.GREEN}refl.trace{style.RESET}",
+)
+
+# Reflective measure function trace intrinsic (for staging).
+mtrace_p = InitialStylePrimitive(
+    f"{style.BOLD}{style.GREEN}refl.mtrace{style.RESET}",
+)
 
 
-# Generative function "FFI" invocation.
+def refl_trace(
+    addr,
+    gen_fn: GFI[X, R] | RMI[X, R],
+    args,
+):
+    gen_fn_name = (
+        gen_fn.reflection_info()["name"]
+        if isinstance(
+            gen_fn,
+            RMI,
+        )
+        else None
+    )
+
+    if isinstance(gen_fn, GFI):
+
+        def default_semantics(gen_fn, args):
+            return gen_fn.simulate(args).get_retval()
+
+        return initial_style_bind(trace_p)(
+            default_semantics,
+            addr=addr,
+            name=gen_fn_name,
+        )(
+            gen_fn,
+            args,
+        )
+    else:
+        return initial_style_bind(mtrace_p)(
+            lambda gen_fn, args: gen_fn.abstract(args),
+            addr=addr,
+            name=gen_fn_name,
+        )(
+            gen_fn,
+            args,
+        )
+
+
+@dataclass
+class Stage:
+    def __call__(
+        self,
+        addr: str,
+        gen_fn: GFI[X, R],
+        args,
+    ) -> R:
+        return refl_trace(addr, gen_fn, args)
+
+
+handler_stack: list[Simulate | Assess | Update | Stage] = []
+
+
+# Generative function "FFI" invocation (no staging).
 def trace(
     addr: str,
     gen_fn: GFI[X, R],
@@ -1339,7 +1746,7 @@ def trace(
 @Pytree.dataclass
 class Fn(
     Generic[R],
-    GFI[dict[str, Any], R],
+    RGFI[dict[str, Any], R],
 ):
     source: Callable[..., R] = Pytree.static()
 
@@ -1384,116 +1791,294 @@ class Fn(
         )
         return Trace(self, args_, trace_map, r, score), w, r, discard
 
+    ###########
+    # Staging #
+    ###########
+
+    def staged_implementation(self, args):
+        handler_stack.append(Stage())
+        r = self.source(*args)
+        handler = handler_stack.pop()
+        assert isinstance(handler, Stage)
+        return r
+
+    def _stage(self, args):
+        return stage(self.staged_implementation)(args)
+
+    def make_jaxpr(self, *args) -> ClosedJaxpr:
+        closed_jaxpr, *_ = self._stage(args)
+        return closed_jaxpr
+
+    ##############
+    # Reflection #
+    ##############
+
+    def abstract(self, args) -> R:
+        return self.simulate(args).get_retval()
+
+    @classmethod
+    def eval_jaxpr_discretize(
+        cls,
+        sel: Selection,
+        jaxpr: Jaxpr,
+        consts: list[Any],
+        args: list[Any],
+    ):
+        env = Environment()
+        safe_map(env.write, jaxpr.invars, args)
+        safe_map(env.write, jaxpr.constvars, consts)
+
+        for eqn in jaxpr.eqns:
+            invals = safe_map(env.read, eqn.invars)
+            subfuns, params = eqn.primitive.get_bind_params(eqn.params)
+            args = subfuns + invals
+            primitive, inner_params = ElaboratedPrimitive.unwrap(eqn.primitive)
+
+            # Logic to compositionally call `discretize`
+            # on callees.
+            if primitive == trace_p:
+                addr = params["addr"]
+                in_tree = inner_params["in_tree"]
+                (gen_fn, args) = jtu.tree_unflatten(in_tree, args)
+                matched, rest = match(addr, sel)
+                new_gen_fn = gen_fn.discretize(args, rest)
+                tree_outvals = refl_trace(addr, new_gen_fn, args)
+                outvals = jtu.tree_leaves(tree_outvals)
+            else:
+                outvals = ElaboratedPrimitive.rebind(
+                    eqn.primitive, inner_params, params, *args
+                )
+
+            if not eqn.primitive.multiple_results:
+                outvals = [outvals]
+            safe_map(env.write, eqn.outvars, outvals)
+
+        return safe_map(env.read, jaxpr.outvars)
+
+    def discretize(
+        self,
+        args: tuple[Any, ...],
+        sel: Selection,
+    ) -> "Fn[R]":
+        def new_source(*args):
+            closed_jaxpr, (_, _, out_tree) = self._stage(args)
+            out_tree_def = out_tree()
+
+            jaxpr, consts = closed_jaxpr.jaxpr, closed_jaxpr.literals
+            outvals = Fn.eval_jaxpr_discretize(sel, jaxpr, consts, list(args))
+            return jtu.tree_unflatten(out_tree_def, outvals)
+
+        return Fn(new_source)
+
+    @classmethod
+    def eval_jaxpr_project(
+        cls,
+        x: dict[str, Any] | None,
+        jaxpr: Jaxpr,
+        consts: list[Any],
+        args: list[Any],
+    ):
+        env = Environment()
+        safe_map(env.write, jaxpr.invars, args)
+        safe_map(env.write, jaxpr.constvars, consts)
+
+        for eqn in jaxpr.eqns:
+            invals = safe_map(env.read, eqn.invars)
+            subfuns, params = eqn.primitive.get_bind_params(eqn.params)
+            args = subfuns + invals
+            primitive, inner_params = ElaboratedPrimitive.unwrap(eqn.primitive)
+
+            # Logic to compositionally call `discretize`
+            # on callees.
+            if primitive == trace_p:
+                addr = params["addr"]
+                in_tree = inner_params["in_tree"]
+                num_consts = inner_params["num_consts"]
+                (gen_fn, args) = jtu.tree_unflatten(in_tree, args[num_consts:])
+                x_ = x[addr] if x and addr in x else None
+                rm_fn = gen_fn.project(args, x_)
+                tree_outvals = refl_trace(addr, rm_fn, args)
+                outvals = jtu.tree_leaves(tree_outvals)
+            else:
+                outvals = ElaboratedPrimitive.rebind(
+                    eqn.primitive, inner_params, params, *args
+                )
+
+            if not eqn.primitive.multiple_results:
+                outvals = [outvals]
+            safe_map(env.write, eqn.outvars, outvals)
+
+        return safe_map(env.read, jaxpr.outvars)
+
+    def project(
+        self,
+        args: tuple[Any, ...],
+        x: dict[str, Any] | None,
+    ) -> "RMFn[R]":
+        return RMFn(self, x if x else {})
+
+
+@Pytree.dataclass
+class RMFn(
+    Generic[R],
+    RMI[dict[str, Any], R],
+):
+    fn: Fn[R]
+    x: dict[str, Any]
+
+    def abstract(self, args) -> R:
+        return self.fn.abstract(args)
+
+    def discretize(
+        self,
+        args: tuple[Any, ...],
+        sel: Selection,
+    ) -> "RMFn[R]":
+        new_source = self.fn.discretize(args, sel)
+        return RMFn(new_source, self.x)
+
+    def project(
+        self,
+        args: tuple[Any, ...],
+        x: dict[str, Any] | None,
+    ) -> "RMFn[R]":
+        x = x if x else {}
+        return RMFn(self.fn, {**x, **self.x})
+
+    @classmethod
+    def eval_jaxpr_lower_enum(
+        cls,
+        constraint: dict[str, Any],
+        jaxpr: Jaxpr,
+        consts: list[Any],
+        args: list[Any],
+    ):
+        env = Environment()
+        safe_map(env.write, jaxpr.invars, args)
+        safe_map(env.write, jaxpr.constvars, consts)
+        x: dict[str, Any] = {}
+
+        for eqn in jaxpr.eqns:
+            invals = safe_map(env.read, eqn.invars)
+            subfuns, params = eqn.primitive.get_bind_params(eqn.params)
+            args = subfuns + invals
+            primitive, inner_params = ElaboratedPrimitive.unwrap(eqn.primitive)
+
+            # Logic to compositionally implement `generate`
+            # on callees, by first `project`ing and then
+            # `generate`ing.
+            if primitive == trace_p:
+                addr = params["addr"]
+                in_tree = inner_params["in_tree"]
+                num_consts = inner_params["num_consts"]
+                (gen_fn, args) = jtu.tree_unflatten(in_tree, args[num_consts:])
+                m = gen_fn.project(
+                    args,
+                    constraint[addr] if addr in constraint else None,
+                )
+                enum_dsl_func = m.lower_enum(args)
+                x_, tree_outvals = enum_dsl_func(*args)
+                x[addr] = x_
+                outvals = jtu.tree_leaves(tree_outvals)
+            else:
+                outvals = ElaboratedPrimitive.rebind(
+                    eqn.primitive, inner_params, params, *args
+                )
+
+            if not eqn.primitive.multiple_results:
+                outvals = [outvals]
+            safe_map(env.write, eqn.outvars, outvals)
+
+        return (x, safe_map(env.read, jaxpr.outvars))
+
+    def lower_enum(
+        self,
+        args: tuple[Any, ...],
+    ) -> EnumDSL[tuple[dict[str, Any], R]]:
+        def _(*args):
+            closed_jaxpr, (_, _, out_tree) = self.fn._stage(args)
+            jaxpr, consts = closed_jaxpr.jaxpr, closed_jaxpr.literals
+            x, outvals = RMFn.eval_jaxpr_lower_enum(self.x, jaxpr, consts, list(args))
+            retval = jtu.tree_unflatten(out_tree(), outvals)
+            return x, retval
+
+        return _
+
+    def make_jaxpr(self, *args) -> ClosedJaxpr:
+        closed_jaxpr, *_ = self.fn._stage(args)
+        return closed_jaxpr
+
+    ###########
+    # Tactics #
+    ###########
+
+    @classmethod
+    def eval_jaxpr_generate(
+        cls,
+        x: dict[str, Any],
+        jaxpr: Jaxpr,
+        consts: list[Any],
+        args: list[Any],
+    ):
+        env = Environment()
+        safe_map(env.write, jaxpr.invars, args)
+        safe_map(env.write, jaxpr.constvars, consts)
+        weight = jnp.array(0.0)
+        score = jnp.array(0.0)
+        choice_map: dict[str, Any] = {}
+
+        for eqn in jaxpr.eqns:
+            invals = safe_map(env.read, eqn.invars)
+            subfuns, params = eqn.primitive.get_bind_params(eqn.params)
+            args = subfuns + invals
+            primitive, inner_params = ElaboratedPrimitive.unwrap(eqn.primitive)
+
+            # Logic to compositionally implement `generate`
+            # on callees, by first `project`ing and then
+            # `generate`ing.
+            if primitive == trace_p:
+                addr = params["addr"]
+                in_tree = inner_params["in_tree"]
+                num_consts = inner_params["num_consts"]
+                (gen_fn, args) = jtu.tree_unflatten(in_tree, args[num_consts:])
+                tr, w = gen_fn.project(
+                    args,
+                    x[addr] if addr in x else None,
+                ).generate(args)
+                score += tr.get_score()
+                weight += w
+                choice_map[addr] = tr
+                tree_outvals = tr.get_retval()
+                outvals = jtu.tree_leaves(tree_outvals)
+            else:
+                outvals = ElaboratedPrimitive.rebind(
+                    eqn.primitive, inner_params, params, *args
+                )
+
+            if not eqn.primitive.multiple_results:
+                outvals = [outvals]
+            safe_map(env.write, eqn.outvars, outvals)
+
+        return (
+            choice_map,
+            weight,
+            score,
+            safe_map(env.read, jaxpr.outvars),
+        )
+
+    def generate(
+        self,
+        args: tuple[Any, ...],
+    ) -> tuple[Trace[dict[str, Any], R], Weight]:
+        closed_jaxpr, (_, _, out_tree) = self.fn._stage(args)
+        out_tree_def = out_tree()
+        jaxpr, consts = closed_jaxpr.jaxpr, closed_jaxpr.literals
+        choice_map, weight, score, outvals = RMFn.eval_jaxpr_generate(
+            self.x, jaxpr, consts, list(args)
+        )
+        retval = jtu.tree_unflatten(out_tree_def, outvals)
+        return Trace(self.fn, args, choice_map, retval, score), weight
+
 
 def gen(fn: Callable[..., R]) -> Fn[R]:
     return Fn(source=fn)
-
-
-############
-# Marginal #
-############
-
-
-class Algorithm(Generic[X], GFI[X, X]):
-    def update(
-        self,
-        args_,
-        tr: Trace[X, X],
-        x_: X,
-    ) -> tuple[Trace[X, X], Weight, X, X]:
-        log_density_, _ = self.assess(args_, x_)
-        return (
-            Trace(self, args_, x_, x_, -log_density_),
-            log_density_ + tr.get_score(),
-            x_,
-            tr.get_retval(),
-        )
-
-
-@Pytree.dataclass
-class Importance(Generic[R], Algorithm[dict[str, Any]]):
-    proposal: Fn[R]
-    K: int = Pytree.static(default=2)
-
-    def simulate(self, args) -> Trace[dict[str, Any], dict[str, Any]]:
-        from genjax import categorical
-
-        (gen_fn, addr, constraint), *args = args
-        tr = modular_vmap(self.proposal.simulate, axis_size=self.K)(args)
-        choices = tr.get_choices()
-
-        def _assess(choices):
-            choices[addr] = constraint
-            p, _ = gen_fn.assess(args, choices)
-            return p
-
-        ps = modular_vmap(_assess)(choices)
-        ws = ps - modular_vmap(lambda tr: tr.get_score())(tr)
-        idx = categorical.sample(ws)
-        v = jtu.tree_map(lambda x: x[idx], choices)
-        Z = logsumexp(ws) - jnp.log(self.K)
-        return Trace(self, args, v, v, Z)
-
-    def assess(self, args, x: X) -> tuple[Weight, X]:
-        raise NotImplementedError
-
-
-@Pytree.dataclass
-class Marginal(Generic[R, X], GFI[X, X]):
-    gen_fn: Fn[R]
-    alg: Algorithm[dict[str, Any]]
-    addr: str = Pytree.static()
-
-    def simulate(
-        self,
-        args,
-    ) -> Trace[X, X]:
-        tr = self.gen_fn.simulate(args)
-        choices = tr.get_choices()
-        marginalized = get_choices(choices.pop(self.addr))
-        weight, _ = self.alg.assess(
-            ((self.gen_fn, self.addr, marginalized), *args),
-            choices,
-        )
-        return Trace(
-            self,
-            args,
-            marginalized,
-            marginalized,
-            tr.get_score() + weight,
-        )
-
-    def assess(
-        self,
-        args,
-        x: X,
-    ) -> tuple[Weight, X]:
-        tr = self.alg.simulate(
-            ((self.gen_fn, self.addr, x), *args),
-        )
-        choices = tr.get_choices()
-        choices[self.addr] = x
-        weight, _ = self.gen_fn.assess(args, choices)
-        return weight + tr.get_score(), x
-
-    def update(
-        self,
-        args_,
-        tr: Trace[X, X],
-        x_: X,
-    ) -> tuple[Trace[X, X], Weight, X, X]:
-        log_density_, _ = self.assess(args_, x_)
-        return (
-            Trace(self, args_, x_, x_, -log_density_),
-            log_density_ + tr.get_score(),
-            x_,
-            tr.get_retval(),
-        )
-
-
-def marginal(
-    gen_fn: Fn[R],
-    alg: Algorithm[dict[str, Any]],
-    addr: str,
-) -> Marginal[R, Any]:
-    return Marginal(gen_fn, alg, addr)
