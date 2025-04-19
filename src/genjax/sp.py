@@ -3,7 +3,7 @@ import jax.tree_util as jtu
 from jax.scipy.special import logsumexp
 from tensorflow_probability.substrates import jax as tfp
 
-from .core import (
+from genjax.core import (
     GFI,
     Any,
     Fn,

@@ -15,6 +15,7 @@ import jax.random as jrand
 import jax.tree_util as jtu
 import jaxtyping as jtyping
 import penzai.pz as pz
+from beartype.vale import Is
 from jax import api_util, tree_util
 from jax._src.interpreters.batching import AxisData  # pyright: ignore
 from jax.core import eval_jaxpr
@@ -1070,13 +1071,13 @@ lowering_warning = True
 
 @Pytree.dataclass
 class Trace(Generic[X, R], Pytree):
-    _gen_fn: "GFI[X, R]"
+    _gen_fn: "RGFI[X, R]"
     _args: Any
     _choices: X
     _retval: R
     _score: Score
 
-    def get_gen_fn(self) -> "GFI[X, R]":
+    def get_gen_fn(self) -> "RGFI[X, R]":
         return self._gen_fn
 
     def get_choices(self) -> X:
@@ -1097,6 +1098,17 @@ class Trace(Generic[X, R], Pytree):
     def update(self, args, x: X):
         gen_fn = self.get_gen_fn()
         return gen_fn.update(args, self, x)
+
+    ##############
+    # Reflection #
+    ##############
+
+    def blanket(self, sel) -> "RMI[X, R]":
+        gen_fn = self.get_gen_fn()
+        args = self.get_args()
+        _, blkt = gen_fn.blanket(Flow.pure(args), self, sel)
+        assert blkt is not None
+        return blkt
 
     def __getitem__(self, addr):
         choices = self.get_choices()
@@ -1171,8 +1183,8 @@ class GFI(Generic[X, R], Pytree):
 K = TypeVar("K")
 EnumDSL = Callable[..., K]
 
-Addr = tuple[()] | str
-Selection = tuple[()] | str | tuple[str, ...] | None
+Addr = btyping.Tuple | str
+Selection = str | tuple[str, ...] | None
 
 
 def match(addr: Addr, sel: Selection):
@@ -1189,6 +1201,96 @@ def match(addr: Addr, sel: Selection):
         return check, sel[1:] if check else None
 
 
+@Pytree.dataclass
+class Flow(Pytree):
+    v: ArrayLike
+    f: bool = Pytree.static()
+
+    @staticmethod
+    def tag(v):
+        return Flow(v, True)
+
+    @staticmethod
+    def _transfer(v1, v2):
+        assert isinstance(v1, Flow)
+        return Flow(v2, v1.f)
+
+    @staticmethod
+    def transfer(v1, v2):
+        return jtu.tree_map(
+            lambda v1, v2: Flow._transfer(v1, v2), v1, v2, is_leaf=Flow.instance
+        )
+
+    @staticmethod
+    def instance(v):
+        return isinstance(v, Flow)
+
+    @staticmethod
+    def check(v):
+        return all(
+            map(
+                Flow.instance,
+                jtu.tree_leaves(v, is_leaf=Flow.instance),
+            )
+        )
+
+    @staticmethod
+    def any(v):
+        def _check(v):
+            if Flow.instance(v):
+                return v.f
+            else:
+                return False
+
+        return any(
+            jtu.tree_leaves(
+                jtu.tree_map(_check, v, is_leaf=Flow.instance),
+            )
+        )
+
+    @staticmethod
+    def _pure(v):
+        if Flow.instance(v):
+            return v
+        else:
+            return Flow(v, False)
+
+    @staticmethod
+    def pure(v):
+        return jtu.tree_map(
+            Flow._pure,
+            v,
+            is_leaf=Flow.instance,
+        )
+
+    @staticmethod
+    def _unwrap(v):
+        if Flow.instance(v):
+            return v.v
+        else:
+            return v
+
+    @staticmethod
+    def unwrap(v):
+        return jtu.tree_map(
+            Flow._unwrap,
+            v,
+            is_leaf=Flow.instance,
+        )
+
+    @staticmethod
+    def lift(fn):
+        def _(*args):
+            args = Flow.pure(args)
+            return Flow.unwrap(fn(*args))
+
+        return _
+
+
+Flowing = btyping.Annotated[btyping.Any, Is[Flow.check]]
+
+
+# The reflective measure interface.
 class RMI(Generic[X, R], Pytree):
     @abstractmethod
     def discretize(
@@ -1205,6 +1307,14 @@ class RMI(Generic[X, R], Pytree):
         x: X | None,
     ) -> "RMI[X, R]":
         pass
+
+    def blanket(
+        self,
+        flow_args: tuple[Flowing, ...],
+        tr: Trace[X, R],
+        sel: Selection,
+    ) -> "tuple[Flowing, RMI[X, R] | None]":
+        raise NotImplementedError
 
     # Lower to a representation that supports
     # enumeration via CPS.
@@ -1239,7 +1349,7 @@ class RMI(Generic[X, R], Pytree):
 
 
 class RGFI(Generic[X, R], RMI[X, R], GFI[X, R]):
-    # RGFI is the type of "all generative functions that
+    # RGFI is the type of "generative functions that
     # also satisfy the RFI" -- these objects are unconditioned (!)
     # meaning the sampler and weight are trivial.
     def generate(
@@ -1412,12 +1522,6 @@ class Distribution(Generic[X], RGFI[X, X]):
     # Reflection #
     ##############
 
-    def abstract(
-        self,
-        args,
-    ) -> X:
-        return self.simulate(args).get_retval()
-
     def discretize(
         self,
         args: tuple[Any, ...],
@@ -1438,6 +1542,27 @@ class Distribution(Generic[X], RGFI[X, X]):
         x: X | None,
     ) -> RMI[X, X]:
         return RMDistribution(self, x) if x else self
+
+    def blanket(
+        self,
+        flow_args: tuple[Flowing, ...],
+        tr: Trace[X, X],
+        sel: Selection,
+    ) -> "tuple[Flowing, RMI[X, X] | None]":
+        check, _ = match((), sel)
+        if check:
+            return (
+                Flow.tag(tr.get_retval()),
+                self,
+            )
+        elif Flow.any(flow_args):
+            args = Flow.unwrap(flow_args)
+            return (
+                Flow.pure(tr.get_retval()),
+                self,
+            )
+        else:
+            return Flow.pure(tr.get_retval()), None
 
     def lower_enum(
         self,
@@ -1527,22 +1652,6 @@ def distribution[X](
     support: Callable[..., Any] | None = None,
     discretization: Callable[..., Distribution[X]] | None = None,
 ) -> Distribution[Any]:
-    """
-    Creates a generative function from a TensorFlow Probability distribution.
-
-    Args:
-        dist: A callable that returns a TensorFlow Probability distribution.
-
-    Returns:
-        A generative function wrapping the TensorFlow Probability distribution.
-
-    This function creates a generative function that encapsulates the sampling
-    and log probability
-    computation of a TensorFlow Probability distribution. It uses the
-    distribution's `sample` and
-    `log_prob` methods to define the generative function's behavior.
-    """
-
     return Distribution(
         sampler,
         logpdf,
@@ -1840,7 +1949,7 @@ class Fn(
             args = subfuns + invals
             primitive, inner_params = ElaboratedPrimitive.unwrap(eqn.primitive)
 
-            # Logic to compositionally call `discretize`
+            # Logic to compositionally call `project`
             # on callees.
             if primitive == trace_p:
                 addr = params["addr"]
@@ -1868,6 +1977,108 @@ class Fn(
         x: dict[str, Any] | None,
     ) -> "RMFn[R]":
         return RMFn(self, x if x else {})
+
+    @staticmethod
+    def eval_jaxpr_blanket(
+        x: dict[str, Any],
+        sel: Selection,
+        jaxpr: Jaxpr,
+        consts: list[Any],
+        args: list[Flowing],
+    ):
+        env = Environment()
+        safe_map(env.write, jaxpr.invars, Flow.pure(args))
+        safe_map(env.write, jaxpr.constvars, Flow.pure(consts))
+
+        for eqn in jaxpr.eqns:
+            flowing_invals = safe_map(env.read, eqn.invars)
+            subfuns, params = eqn.primitive.get_bind_params(eqn.params)
+            args = subfuns + flowing_invals
+            primitive, inner_params = ElaboratedPrimitive.unwrap(eqn.primitive)
+
+            # Logic to compositionally call `blanket`
+            # on callees.
+            if primitive == trace_p:
+                addr = params["addr"]
+                in_tree = inner_params["in_tree"]
+                num_consts = inner_params["num_consts"]
+                (gen_fn, args) = jtu.tree_unflatten(
+                    in_tree, Flow.pure(args[num_consts:])
+                )
+                x_ = x[addr]
+                _, rest = match(addr, sel)
+
+                # This is complicated, stupidly complicated.
+                # Likely ... needlessly complicated.
+                #
+                # I need to simultaneously get a RMI back
+                # and also ... communicate information about the flow
+                # forward.
+                #
+                # ...and this logic is part of the implementation logic
+                # of a new Fn(...) on the outside (see `Fn.blanket` below).
+                #
+                # All making it seem like this is not the right idiom for
+                # simultaneously running an analysis, and creating a new
+                # implementation.
+                flowing_tree_outvals, m = gen_fn.blanket(args, x_, rest)
+                flowing_tree_outvals = (
+                    # Here, transfer the "analysis" from what the callee said
+                    # to the values coming out of the new rebound `trace_p`.
+                    Flow.transfer(
+                        flowing_tree_outvals,
+                        # Here, rebind `trace_p` as part of the new
+                        # implementation.
+                        refl_trace(addr, m, Flow.unwrap(args)),
+                    )
+                    if m
+                    # Else, just use the values directly from the callee.
+                    else flowing_tree_outvals
+                )
+                outvals: list[Flow] | Flow = Flow.pure(
+                    jtu.tree_leaves(
+                        flowing_tree_outvals,
+                        is_leaf=Flow.instance,
+                    )
+                )
+            else:
+                # This is a simple semantics for flowing through JAX
+                # primitives. If any of the arguments are flowing,
+                # rebind the primitive
+                check = Flow.any(args)
+                args = Flow.unwrap(args)
+                outvals = ElaboratedPrimitive.rebind(
+                    eqn.primitive, inner_params, params, *args
+                )
+                outvals: list[Flow] | Flow = (
+                    Flow.tag(outvals) if check else Flow.pure(outvals)
+                )
+
+            if not eqn.primitive.multiple_results:
+                assert not isinstance(outvals, list)
+                outvals = [outvals]
+            assert isinstance(outvals, list)
+            safe_map(env.write, eqn.outvars, outvals)
+
+        return safe_map(env.read, jaxpr.outvars)
+
+    def blanket(
+        self,
+        flow_args: tuple[Flowing, ...],
+        tr: Trace[dict[str, Any], R],
+        sel: Selection,
+    ) -> "tuple[Flowing, Fn[R]]":
+        def _(*flow_args):
+            closed_jaxpr, (_, _, out_tree) = self._stage(Flow.unwrap(flow_args))
+            jaxpr, consts = closed_jaxpr.jaxpr, closed_jaxpr.literals
+            outvals = Fn.eval_jaxpr_blanket(
+                tr.get_choices(), sel, jaxpr, consts, list(flow_args)
+            )
+            flow_retval = jtu.tree_unflatten(out_tree(), outvals)
+            return flow_retval
+
+        flow_retval = _(*flow_args)
+        return flow_retval, Fn(Flow.lift(_))
 
 
 @Pytree.dataclass

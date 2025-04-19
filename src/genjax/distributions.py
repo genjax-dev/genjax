@@ -2,7 +2,7 @@ import jax.numpy as jnp
 from jax import vmap
 from tensorflow_probability.substrates import jax as tfp
 
-from .core import (
+from genjax.core import (
     Callable,
     Distribution,
     X,

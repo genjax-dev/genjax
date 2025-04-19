@@ -15,7 +15,7 @@ from jax.interpreters import ad as jax_autodiff
 from jaxtyping import ArrayLike
 from tensorflow_probability.substrates import jax as tfp
 
-from .core import (
+from genjax.core import (
     ElaboratedPrimitive,
     Environment,
     Pytree,
@@ -25,6 +25,7 @@ from .core import (
     modular_vmap,
     stage,
 )
+
 from .distributions import bernoulli, categorical, geometric, normal
 
 tfd = tfp.distributions

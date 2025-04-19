@@ -7,7 +7,7 @@ from jax import vmap
 from jax.extend.core import Jaxpr
 from jax.util import safe_map
 
-from .core import (
+from genjax.core import (
     Any,
     Callable,
     ElaboratedPrimitive,
