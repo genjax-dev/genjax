@@ -2,11 +2,8 @@ pixi.lock merge=binary linguist-language=YAML linguist-generated=true
 docs/* linguist-documentation
 notebooks/* linguist-documentation
 site/* linguist-documentation
-paper/* linguist-venored
+quarto/* linguist-documentation
 *.html linguist-vendored
 *.js linguist-vendored
 *.ipynb linguist-vendored
 *.css linguist-vendored
-*.tex linguist-vendored
-main.tex linguist-vendored
-just linguist-vendored
