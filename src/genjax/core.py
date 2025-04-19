@@ -531,7 +531,10 @@ def assume_binder(
     batch_shape: tuple[int, ...] = (),
     support: Callable[..., Any] | None = None,
 ):
-    keyful_with_batch_shape = partial(keyful_sampler, sample_shape=batch_shape)
+    keyful_with_batch_shape = partial(
+        keyful_sampler,
+        sample_shape=batch_shape,
+    )
 
     def assume(*args, **kwargs):
         # We're playing a trick here by allowing users to invoke assume_p
@@ -636,12 +639,46 @@ def log_density_binder(
             out_axes = (0 if n else None,)
             return outvals, out_axes
 
-        return initial_style_bind(
-            log_density_p,
-            batch=batch,
-        )(log_density_impl, name=name)(*args, **kwargs)
+        return initial_style_bind(log_density_p, batch=batch)(
+            log_density_impl, name=name
+        )(*args, **kwargs)
 
     return log_density
+
+
+def wrap_sampler(
+    keyful_sampler,
+    name: str | None = None,
+    support=None,
+):
+    def _(*args, **kwargs):
+        batch_shape = kwargs.get("shape", ())
+        if "shape" in kwargs:
+            kwargs.pop("shape")
+        return assume_binder(
+            keyful_sampler,
+            name=name,
+            batch_shape=batch_shape,
+            support=support,
+        )(
+            *args,
+            **kwargs,
+        )
+
+    return _
+
+
+def wrap_logpdf(
+    logpdf,
+    name: str | None = None,
+):
+    def _(v, *args, **kwargs):
+        return log_density_binder(
+            logpdf,
+            name=name,
+        )(v, *args, **kwargs)
+
+    return _
 
 
 VarOrLiteral = Var | Literal
@@ -1360,8 +1397,6 @@ class Vmap(Generic[X, R], RGFI[X, R]):
 class Distribution(Generic[X], RGFI[X, X]):
     sample: Callable[..., X] = Pytree.static()
     logpdf: Callable[..., Weight] = Pytree.static()
-    reference_keyful_sampler: Callable[..., X] = Pytree.static()
-    reference_logpdf: Callable[..., Weight] = Pytree.static()
     discretization: Callable[..., "Distribution[X]"] | None = Pytree.static(
         default=None
     )
@@ -1512,7 +1547,7 @@ class RMDistribution(Generic[X], RMI[X, X]):
 
 
 def distribution[X](
-    keyful_sampler: Callable[..., X],
+    sampler: Callable[..., X],
     logpdf: Callable[..., Any],
     /,
     name: str | None = None,
@@ -1535,27 +1570,8 @@ def distribution[X](
     `log_prob` methods to define the generative function's behavior.
     """
 
-    def pjax_sampler(*args, **kwargs):
-        batch_shape = kwargs.get("shape", ())
-        if "shape" in kwargs:
-            kwargs.pop("shape")
-        return assume_binder(
-            keyful_sampler,
-            name=name,
-            batch_shape=batch_shape,
-            support=support,
-        )(
-            *args,
-            **kwargs,
-        )
-
-    def pjax_logpdf(v, *args, **kwargs):
-        return log_density_binder(logpdf, name=name)(v, *args, **kwargs)
-
     return Distribution(
-        pjax_sampler,
-        pjax_logpdf,
-        keyful_sampler,
+        sampler,
         logpdf,
         discretization,
         name,
@@ -1580,8 +1596,8 @@ def tfp_distribution[X](
         return d.log_prob(v)
 
     return distribution(
-        keyful_sampler,
-        logpdf,
+        wrap_sampler(keyful_sampler, name=name, support=support),
+        wrap_logpdf(logpdf),
         name=name,
         discretization=discretization,
     )

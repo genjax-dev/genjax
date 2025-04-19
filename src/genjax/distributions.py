@@ -8,6 +8,8 @@ from .core import (
     X,
     distribution,
     tfp_distribution,
+    wrap_logpdf,
+    wrap_sampler,
 )
 
 tfd = tfp.distributions
@@ -77,8 +79,8 @@ def attach_discretization(
     strategy: Callable[..., Distribution[X]],
 ):
     return distribution(
-        d.reference_keyful_sampler,
-        d.reference_logpdf,
+        d.sample,
+        d.logpdf,
         discretization=strategy,
         name=d.name,
     )
@@ -112,8 +114,12 @@ def normal_grid_around_mean(radius, num_points):
             return x_range + mu
 
         return distribution(
-            keyful_sampler,
-            logpdf,
+            wrap_sampler(
+                keyful_sampler,
+                name="DiscretizedNormal",
+                support=support,
+            ),
+            wrap_logpdf(logpdf),
             support=support,
             name="DiscretizedNormal",
         )
