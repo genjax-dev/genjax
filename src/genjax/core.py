@@ -1190,6 +1190,10 @@ EnumDSL = Callable[..., K]
 
 Addr = btyping.Tuple | str
 
+##############
+# Selections #
+##############
+
 
 @Pytree.dataclass
 class AllSel(Pytree):
@@ -1283,6 +1287,11 @@ def match(addr: Addr, sel: S):
     return sel.match(addr)
 
 
+###############
+# Flow typing #
+###############
+
+
 @Pytree.dataclass
 class Flow(Pytree):
     v: ArrayLike
@@ -1371,8 +1380,54 @@ class Flow(Pytree):
 
 Flowing = btyping.Annotated[btyping.Any, Is[Flow.check]]
 
+################
+# Trace typing #
+################
 
-# The reflective measure interface.
+
+class BaseType(Pytree):
+    pass
+
+
+@Pytree.dataclass
+class Bottom(BaseType):
+    pass
+
+
+@Pytree.dataclass
+class RR(BaseType):
+    pass
+
+
+@Pytree.dataclass
+class Finite(BaseType):
+    dim: int
+
+
+class TraceType(Pytree):
+    pass
+
+
+@Pytree.dataclass
+class Shaped(TraceType):
+    shape: tuple[int, ...]
+    ttype: BaseType
+
+
+@Pytree.dataclass
+class Map(TraceType):
+    d: dict[str, TraceType]
+
+
+def BB(shape):
+    return Shaped(shape, Finite(dim=2))
+
+
+#####################################
+# The reflective measure interface. #
+#####################################
+
+
 class RMI(Generic[X, R], Pytree):
     @abstractmethod
     def discretize(
@@ -1404,13 +1459,18 @@ class RMI(Generic[X, R], Pytree):
     ) -> S:
         raise NotImplementedError
 
-    @abstractmethod
     def filter(
         self,
         x: X,
         sel: S,
     ) -> X | None:
-        pass
+        raise NotImplementedError
+
+    def trype(
+        self,
+        args,
+    ) -> TraceType:
+        raise NotImplementedError
 
     # Lower to a representation that supports
     # enumeration via CPS.
@@ -1594,6 +1654,7 @@ class Distribution(Generic[X], RGFI[X, X]):
     discretization: Callable[..., "Distribution[X]"] | None = Pytree.static(
         default=None
     )
+    tryper: Callable[..., TraceType] | None = Pytree.static(default=None)
     name: str | None = Pytree.static(default=None)
 
     def simulate(
@@ -1683,6 +1744,12 @@ class Distribution(Generic[X], RGFI[X, X]):
         sel: S,
     ) -> X | None:
         return x if () in sel else None
+
+    def trype(
+        self,
+        args,
+    ) -> TraceType:
+        return self.tryper(args) if self.tryper else Shaped((), Bottom())
 
     def lower_enum(
         self,
@@ -1775,14 +1842,16 @@ def distribution[X](
     sampler: Callable[..., X],
     logpdf: Callable[..., Any],
     /,
-    name: str | None = None,
     support: Callable[..., Any] | None = None,
     discretization: Callable[..., Distribution[X]] | None = None,
+    tryper: Callable[..., TraceType] | None = None,
+    name: str | None = None,
 ) -> Distribution[Any]:
     return Distribution(
         sampler,
         logpdf,
         discretization,
+        tryper,
         name,
     )
 
@@ -2270,6 +2339,53 @@ class Fn(
                 x_[addr] = filtered
         return x_ if x_ else None
 
+    @staticmethod
+    def eval_jaxpr_trype(
+        jaxpr: Jaxpr,
+        consts: list[Any],
+        args: list[Any],
+    ):
+        env = Environment()
+        safe_map(env.write, jaxpr.invars, args)
+        safe_map(env.write, jaxpr.constvars, consts)
+        trype: dict[str, TraceType] = {}
+
+        for eqn in jaxpr.eqns:
+            invals = safe_map(env.read, eqn.invars)
+            subfuns, params = eqn.primitive.get_bind_params(eqn.params)
+            args = subfuns + invals
+            primitive, inner_params = ElaboratedPrimitive.unwrap(eqn.primitive)
+
+            # Logic to compositionally call `project`
+            # on callees.
+            if primitive == trace_p:
+                addr = params["addr"]
+                in_tree = inner_params["in_tree"]
+                num_consts = inner_params["num_consts"]
+                (gen_fn, args) = jtu.tree_unflatten(in_tree, args[num_consts:])
+                subtype = gen_fn.trype(args)
+                trype[addr] = subtype
+                tree_outvals = refl_trace(addr, gen_fn, args)
+                outvals = jtu.tree_leaves(tree_outvals)
+            else:
+                outvals = ElaboratedPrimitive.rebind(
+                    eqn.primitive, inner_params, params, *args
+                )
+
+            if not eqn.primitive.multiple_results:
+                outvals = [outvals]
+            safe_map(env.write, eqn.outvars, outvals)
+
+        return trype
+
+    def trype(
+        self,
+        args: tuple[Any, ...],
+    ) -> Map:
+        closed_jaxpr, (_, _, out_tree) = self._stage(args)
+        jaxpr, consts = closed_jaxpr.jaxpr, closed_jaxpr.literals
+        return Map(Fn.eval_jaxpr_trype(jaxpr, consts, list(args)))
+
 
 @Pytree.dataclass
 class RMFn(
@@ -2359,6 +2475,17 @@ class RMFn(
         sel: S,
     ) -> dict[str, Any] | None:
         return self.fn.filter(x, sel)
+
+    def trype(
+        self,
+        args: tuple[Any, ...],
+    ) -> TraceType:
+        fn_type: Map = self.fn.trype(args)
+        inside = fn_type.d
+        for k in self.x:
+            if k in inside:
+                inside.pop(k)
+        return Map(inside)
 
     def make_jaxpr(self, *args):
         return self.fn.make_jaxpr(*args)
