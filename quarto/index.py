@@ -43,6 +43,7 @@
 import genstudio.plot as Plot
 import jax.numpy as jnp
 import jax.random as jrand
+import jax.tree_util as jtu
 import treescope
 from jax import make_jaxpr
 from jax.lax import cond, scan
@@ -50,11 +51,15 @@ from jax.numpy import array, sum
 
 from genjax import (
     GFI,
+    attach_discretization,
+    flip,
     gen,
     normal,
+    normal_grid_around_mean,
     normal_reinforce,
     normal_reparam,
     seed,
+    sel,
     trace,
 )
 from genjax import modular_vmap as pjax_vmap
@@ -408,6 +413,201 @@ dot_plot(jnp.arange(500), thetas)
 # on modern hardware.
 
 # %% [markdown]
+# ## Advanced topics: more on the GFI
+
+# %% [markdown]
+# ## Experimental: the reflective measure interface
+#
+# The GFI is a design for probabilistic computation based on "black box"
+# objects that satisfy a interface. By "black box", we mean that
+# the only thing that one object can know about another is
+# that it satisfies the interface (meaning
+# it provides access to interface methods).
+# This allows Gen [@cusumano-towner_gen_2019]
+# to support modular extension, including defining
+# new functionality (like usage of neural networks, or external probabilistic
+# modules) as "black box" objects that satisfy the interface.
+#
+# But often the "black box" nature of the GFI is a restricted viewpoint. Several observations inspire a strengthening:
+#
+# * In GenJAX, probabilistic computation carries
+# the strong assumption of _JAX compatibility_.
+#
+# * Additionally, in GenJAX, _probabilistic computations
+#   can share the same intermediate representation_.
+#
+# * JAX supports a compositional model of staged
+#   metaprogramming.
+#
+# These observations beg the question: what about _stronger
+# automation_ which brings these capabilities into the
+# foreground?
+#
+# As motivation, note that the design of the GFI
+# says nothing about several strong forms of automation,
+# including interval interpretations of probabilistic programs
+# for posterior analysis [@beutner_guaranteed_2022; @zaiser_guaranteed_2025],
+# type-driven soundness analysis of inference [@lew_trace_2019],
+# or inference functionality which requires program analysis
+# and transformation [@li_compiling_2024].
+#
+# These forms of automation are highly important and useful!
+# They work by providing language-based algorithms
+# which utilize domain-specific languages and program
+# transformations or interpretation.
+#
+# ### Case study: exact enumeration
+#
+# Consider the _burglar model_ (a classic!) below:
+
+# %%
+alarm_likelihood = jnp.array(
+    [
+        [0.001, 0.29],
+        [0.94, 0.95],
+    ]
+)
+john_likelihood = jnp.array([0.05, 0.90])
+mary_likelihood = jnp.array([0.01, 0.7])
+
+
+def int_(v):
+    return v.astype(int)
+
+
+@gen
+def burglary():
+    bg = int_(flip(0.005) @ "bg")
+    eqk = int_(flip(0.001) @ "eqk")
+    alarm = int_(flip(alarm_likelihood[bg, eqk]) @ "alarm")
+    john = flip(john_likelihood[alarm]) @ "john"
+    mary = flip(mary_likelihood[alarm]) @ "mary"
+
+
+# %% [markdown]
+#
+# There is no reason to use Monte Carlo in this setting:
+# when expressed as a Bayesian network, exact posterior queries
+# on `burglary` can be computed using several algorithms,
+# including exact enumeration (and, more efficiently, variable elimination).
+#
+# Let's assume that John and Mary both give us a call,
+# we gain access to the unnormalized measure
+# induced by conditioning `burglary` using the `RMI.project`
+# method:
+
+# %%
+meas = burglary.project((), {"john": True, "mary": True})
+meas
+
+# %%
+log_posterior, (choices, _) = meas.enum(())
+log_posterior
+
+
+# %%
+def exact_MAP(*args):
+    log_posterior, (choices, _) = args
+    idx = jnp.unravel_index(
+        jnp.argmax(log_posterior),
+        shape=jnp.shape(log_posterior),
+    )
+    return log_posterior[idx], jtu.tree_map(lambda v: v[idx], choices)
+
+
+exact_MAP(log_posterior, (choices, _))
+
+# %% [markdown]
+# Quick and painless, but how does this work? The trick is
+# in the RMI: objects which satisfy the RMI
+# participate in interfaces which expose their probabilistic logic
+# -- for _enumeration_, the statement is that the logic can be lowered
+# to an _enumeration language_, with automation for enumeration.
+
+# %%
+make_jaxpr(meas.lower_enum(()))()
+
+# %% [markdown]
+# The `enum` language extends JAX with new primitives
+# for _assumptions_ (assuming a random variable) and
+# _observations_ (observing that a random variable takes a
+# value, and accumulating probability mass accordingly).
+#
+# ### Intuition: compositional lowering interfaces
+#
+# Another way to understand the RMI is that objects that
+# satisfy the RMI participate in compositional
+# _lowering_ interfaces: an RMI object may ask another RMI object
+# for a representation of its logic. For `enum`, this interface
+# has the following (Haskell-like) signature:
+#
+# ```haskell
+# -- LHS: `X` is the type of sample, `R` is the return value
+# lower_enum :: RMI[X, R] -> EnumDSL[tuple[X, R]]
+# -- RHS: `tuple[X, R]` is the return value from the DSL function.
+# ```
+#
+# where `EnumDSL[...]` is a representation of the logic of the
+# `RMI[...]` in the `enum` language.
+#
+# Combined with JAX's staged metaprogramming, this allows
+# zero-cost implementation of brute force exact enumeration
+# (provided as automation via the `enum` language).
+
+# %% [markdown]
+# ### Discretization
+#
+# Discretization is a powerful technique, especially when paired with `enum`. The `RMI.discretize` interface
+# provides support for a form of _programmable discretization_:
+
+# %%
+normal = attach_discretization(
+    normal,
+    normal_grid_around_mean(2, 50),
+)
+
+
+@gen
+def trivial_model():
+    x = normal(0.0, 1.0) @ "x"
+    v = normal(x, 0.3) @ "v"
+
+
+# Target specific addresses via `sel("x")`
+discretized = trivial_model.discretize((), sel("x"))
+
+# %% [markdown]
+# The `attach_discretization` function allows tagging
+# distributions with discretization strategies.
+# The strategy `normal_grid_around_mean(radius, num_points)` constructs
+# a uniform grid around the mean of the `normal`,
+# with `radius` and `num_points = radius / eps`.
+
+# %%
+# Available for `Fn` (but not for other programs).
+discretized.make_jaxpr()
+
+# %% [markdown]
+# Shown above, we've _changed_ the source logic of the `RMI`
+# object: we swapped `Normal` for `DiscretizedNormal`,
+# a discrete (and truncated) representation of `Normal`.
+#
+# Now, solutions to inference problems for this new model won't
+# apply directly to our original model: by introducing
+# our discretization -- we've changed the distribution!
+# We'll cover _translation_ later, and we'll see how to convert
+# solutions to discretized problems back to the original model.
+#
+# First, a few lines to construct a MAP using the RMI & `enum`.
+
+# %%
+meas = discretized.project((), {"v": 2.0})
+exact_MAP(*meas.enum(()))
+
+# %% [markdown]
+# ### Interactive inference programming
+
+# %% [markdown]
 # ## Under the hood: PJAX
 
 # %% [markdown]
@@ -458,8 +658,6 @@ def loss(mu):
 
 make_jaxpr(loss.grad_estimate)(0.1)
 
-# %% [markdown]
-# ## Advanced topics: more on the GFI
 
 # %% [markdown]
 # ## Future work & sharp edges

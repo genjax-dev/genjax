@@ -22,12 +22,14 @@ bernoulli = tfp_distribution(
     tfd.Bernoulli,
     discretization=lambda logits: bernoulli,
     tryper=lambda sample_shape: BB(sample_shape),
+    support=lambda *args: jnp.array([False, True]),
     name="Bernoulli",
 )
 
 flip = tfp_distribution(
     lambda p: tfd.Bernoulli(probs=p, dtype=jnp.bool_),
     discretization=lambda p: flip,
+    support=lambda *args: jnp.array([False, True]),
     name="Flip",
 )
 
@@ -68,9 +70,11 @@ def labeled_categorical_support(logits, vs):
 
 
 labeled_cat = distribution(
-    labeled_categorical_sampler,
+    wrap_sampler(
+        labeled_categorical_sampler,
+        support=labeled_categorical_support,
+    ),
     labeled_categorical_logpdf,
-    support=labeled_categorical_support,
     name="LabeledCategorical",
 )
 
@@ -130,7 +134,6 @@ def normal_grid_around_mean(radius, num_points):
                 support=support,
             ),
             wrap_logpdf(logpdf),
-            support=support,
             tryper=tryper,
             name="DiscretizedNormal",
         )

@@ -1842,7 +1842,6 @@ def distribution[X](
     sampler: Callable[..., X],
     logpdf: Callable[..., Any],
     /,
-    support: Callable[..., Any] | None = None,
     discretization: Callable[..., Distribution[X]] | None = None,
     tryper: Callable[..., TraceType] | None = None,
     name: str | None = None,
@@ -1875,7 +1874,11 @@ def tfp_distribution[X](
         return d.log_prob(v)
 
     return distribution(
-        wrap_sampler(keyful_sampler, name=name, support=support),
+        wrap_sampler(
+            keyful_sampler,
+            name=name,
+            support=support,
+        ),
         wrap_logpdf(logpdf),
         discretization=discretization,
         tryper=tryper,
@@ -2445,7 +2448,8 @@ class RMFn(
                 )
                 enum_dsl_func = m.lower_enum(args)
                 x_, tree_outvals = enum_dsl_func(*args)
-                x[addr] = x_
+                if addr not in constraint:
+                    x[addr] = x_
                 outvals = jtu.tree_leaves(tree_outvals)
             else:
                 outvals = ElaboratedPrimitive.rebind(

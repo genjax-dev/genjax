@@ -26,7 +26,7 @@ from genjax.core import (
 )
 
 observe_p = InitialStylePrimitive(
-    f"{style.BOLD}{style.GREEN}refl.observe{style.RESET}",
+    f"{style.BOLD}{style.GREEN}enum.observe{style.RESET}",
 )
 
 
@@ -164,7 +164,8 @@ class EnumerationInterpreter:
                     )
                     support_fn = inner_params["support"]
                     assert support_fn, (
-                        f"{params['name']} doesn't have a support function."
+                        f"{params['name']} doesn't have a support function.",
+                        inner_params,
                     )
                     if inner_params["yes_kwargs"]:
                         support = inner_params["support"](*tree_args[0], **tree_args[1])
