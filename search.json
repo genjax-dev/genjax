@@ -42,13 +42,6 @@
     "text": "Programmable Monte Carlo\nGenJAX’s GFI is designed to provide users with the ability to construct customized Monte Carlo algorithms, producing better quality approximations in difficult inference settings. Paired with expressive modeling syntax, GenJAX allows users to construct complex distributions concisely, and develop effective sampling (and variational) approximations.\n\nCase study: inferencing the Game of Life\nThe Game of Life is a computational system which gives rise to a bewildering array of interesting phenomenon. One interesting theoretical question: given a fixed Life configuration, is it possible to find a configuration that precedes it? This is known as atavising. Exact atavisation is a complex, high-dimensional discrete search problem. By relaxing the problem to noisily atavise (by adding a bit of probability), we can construct algorithms that build approximate predecessor states almost instantaneously on modern hardware."
   },
   {
-    "objectID": "index.html#advanced-topics-more-on-the-gfi",
-    "href": "index.html#advanced-topics-more-on-the-gfi",
-    "title": "The Generative Cookbook",
-    "section": "Advanced topics: more on the GFI",
-    "text": "Advanced topics: more on the GFI"
-  },
-  {
     "objectID": "index.html#experimental-the-reflective-measure-interface",
     "href": "index.html#experimental-the-reflective-measure-interface",
     "title": "The Generative Cookbook",
@@ -61,6 +54,13 @@
     "title": "The Generative Cookbook",
     "section": "Under the hood: PJAX",
     "text": "Under the hood: PJAX\nAll of GenJAX’s functionality is constructed on top of a vectorizable probabilistic intermediate representation called PJAX.\nPJAX is a modular extension to JAX that explicitly represents operations on probability distributions as first class primitives.\n\ndef sampler():\n    v = normal.sample(0.0, 1.0)\n    return jnp.exp(v)\n\n\nmake_jaxpr(sampler)()\n\n\n{ lambda ; . let\n    a:f32[] = pjax.assume[name=Normal] 0.0 1.0\n    b:f32[] = exp a\n  in (b,) }\n\n\n\nPJAX supports a vmap-like transformation, which is an extension of jax.vmap to natively work with operations on probability distributions.\n\nmake_jaxpr(pjax_vmap(sampler, axis_size=10))()\n\n\n{ lambda ; . let\n    a:f32[10] = pjax.assume[name=Normal] 0.0 1.0\n    b:f32[10] = exp a\n  in (b,) }\n\n\n\nGenJAX’s GFI is implemented in terms of PJAX:\n\n@gen\ndef model():\n    x = normal(0.0, 1.0) @ \"x\"\n    y = normal(0.0, 1.0) @ \"y\"\n    return x + y\n\n\nmake_jaxpr(model.simulate)(())\n\n\n{ lambda ; . let\n    a:f32[] = pjax.assume[name=Normal] 0.0 1.0\n    b:f32[] = pjax.log_density[name=None] a 0.0 1.0\n    c:f32[] = neg b\n    d:f32[] = add 0.0 c\n    e:f32[] = pjax.assume[name=Normal] 0.0 1.0\n    f:f32[] = pjax.log_density[name=None] e 0.0 1.0\n    g:f32[] = neg f\n    h:f32[] = add d g\n    i:f32[] = add a e\n  in (0.0, 1.0, a, a, c, 0.0, 1.0, e, e, g, i, h) }\n\n\n\nEven ADEV’s unbiased gradient estimator programs are implemented in terms of PJAX:\n\n@expectation\ndef loss(mu):\n    x = normal_reparam.sample(mu, 1.0)\n    return x**2\n\n\nmake_jaxpr(loss.grad_estimate)(0.1)\n\n\n{ lambda ; a:f32[]. let\n    b:f32[] = pjax.assume[name=Normal] 0.0 1.0\n    c:f32[] = mul 1.0 b\n    _:f32[] = mul 0.0 b\n    d:f32[] = convert_element_type[new_dtype=float32 weak_type=False] a\n    e:f32[] = add d c\n    _:f32[] = integer_pow[y=2] e\n    f:f32[] = integer_pow[y=1] e\n    g:f32[] = mul 2.0 f\n    h:f32[] = mul 1.0 g\n    i:f32[] = convert_element_type[new_dtype=float32 weak_type=True] h\n  in (i,) }"
+  },
+  {
+    "objectID": "index.html#advanced-gfi-theory",
+    "href": "index.html#advanced-gfi-theory",
+    "title": "The Generative Cookbook",
+    "section": "Advanced: GFI theory",
+    "text": "Advanced: GFI theory"
   },
   {
     "objectID": "index.html#future-work-sharp-edges",
