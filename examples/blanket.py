@@ -18,7 +18,7 @@ normal = attach_discretization(
 def model():
     m = normal(0.1, 2.0) @ "m"
     v = normal(0.3, 3.0) @ "v"
-    x = normal(jnp.exp(v), m) @ "y"
+    x = normal(jnp.exp(v), jnp.exp(m)) @ "y"
     q = normal(jnp.exp(x), 3.0) @ "q"
     return v
 
@@ -27,5 +27,5 @@ model = model.discretize((), sel("v"))
 measure_program = model.project((), {"y": 3.0})
 tr, w = measure_program.generate(())
 fn = tr.blanket(sel("v"))
-print("v" in (~sel("v") ^ fn.sel(())))
-print("y" in (~sel("v") ^ fn.sel(())))
+subproblem_tr, w = fn.generate(())
+print(subproblem_tr)

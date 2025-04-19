@@ -1110,6 +1110,11 @@ class Trace(Generic[X, R], Pytree):
         assert blkt is not None
         return blkt
 
+    def filter(self, sel: "S") -> X | None:
+        gen_fn = self.get_gen_fn()
+        choices = self.get_choices()
+        return gen_fn.filter(choices, sel)
+
     def __getitem__(self, addr):
         choices = self.get_choices()
         return get_choices(choices[addr])  # pyright: ignore
@@ -1213,7 +1218,7 @@ class DictSel(Pytree):
 
     def match(self, addr) -> "tuple[bool, Any]":
         check = addr in self.d
-        return check, self.d[addr] if check else None
+        return check, self.d[addr] if check else NoneSel()
 
 
 @Pytree.dataclass
@@ -1253,6 +1258,9 @@ class S(Pytree):
     def __contains__(self, addr) -> bool:
         check, _ = self.match(addr)
         return check
+
+    def __call__(self, addr) -> "tuple[bool, S]":
+        return self.match(addr)
 
 
 def sel(*v: tuple[()] | str | dict[str, Any] | None) -> S:
@@ -1395,6 +1403,14 @@ class RMI(Generic[X, R], Pytree):
         args: tuple[Any, ...],
     ) -> S:
         raise NotImplementedError
+
+    @abstractmethod
+    def filter(
+        self,
+        x: X,
+        sel: S,
+    ) -> X | None:
+        pass
 
     # Lower to a representation that supports
     # enumeration via CPS.
@@ -1540,6 +1556,18 @@ class Vmap(Generic[X, R], RGFI[X, R]):
     ) -> RMI[X, R]:
         raise NotImplementedError
 
+    def filter(
+        self,
+        x: X,
+        sel: S,
+    ) -> X | None:
+        assert isinstance(self.gen_fn, RMI)
+        return self.gen_fn.filter(x, sel)
+
+    ###########
+    # Tactics #
+    ###########
+
     def generate(
         self,
         args: tuple[Any, ...],
@@ -1649,6 +1677,13 @@ class Distribution(Generic[X], RGFI[X, X]):
     ) -> S:
         return sel(())
 
+    def filter(
+        self,
+        x: X,
+        sel: S,
+    ) -> X | None:
+        return x if () in sel else None
+
     def lower_enum(
         self,
         args: tuple[Any, ...],
@@ -1710,6 +1745,13 @@ class RMDistribution(Generic[X], RMI[X, X]):
             return v, v
 
         return _
+
+    def filter(
+        self,
+        x: X,
+        sel: S,
+    ) -> X | None:
+        return self.distribution.filter(x, sel)
 
     ###########
     # Tactics #
@@ -2152,7 +2194,7 @@ class Fn(
         flow_args: tuple[Flowing, ...],
         tr: Trace[dict[str, Any], R],
         sel: S,
-    ) -> "tuple[Flowing, Fn[R]]":
+    ) -> "tuple[Flowing, RMFn[R]]":
         def _(*flow_args):
             closed_jaxpr, (_, _, out_tree) = self._stage(Flow.unwrap(flow_args))
             jaxpr, consts = closed_jaxpr.jaxpr, closed_jaxpr.literals
@@ -2163,7 +2205,9 @@ class Fn(
             return flow_retval
 
         flow_retval = _(*flow_args)
-        return flow_retval, Fn(Flow.lift(_))
+        fn = Fn(Flow.lift(_))
+        constraint = tr.filter(~sel ^ fn.sel(Flow.unwrap(flow_args)))
+        return flow_retval, RMFn(fn, constraint if constraint else {})
 
     @staticmethod
     def eval_jaxpr_sel(
@@ -2211,6 +2255,20 @@ class Fn(
         closed_jaxpr, (_, _, out_tree) = self._stage(args)
         jaxpr, consts = closed_jaxpr.jaxpr, closed_jaxpr.literals
         return sel(Fn.eval_jaxpr_sel(jaxpr, consts, list(args)))
+
+    def filter(
+        self,
+        x: dict[str, Any],
+        sel: S,
+    ) -> dict[str, Any] | None:
+        x_: dict[str, Any] = {}
+        for addr, subtr in x.items():
+            check, rest = sel(addr)
+            gen_fn = subtr.get_gen_fn()
+            filtered = gen_fn.filter(subtr.get_choices(), rest)
+            if check:
+                x_[addr] = filtered
+        return x_ if x_ else None
 
 
 @Pytree.dataclass
@@ -2295,9 +2353,15 @@ class RMFn(
 
         return _
 
-    def make_jaxpr(self, *args) -> ClosedJaxpr:
-        closed_jaxpr, *_ = self.fn._stage(args)
-        return closed_jaxpr
+    def filter(
+        self,
+        x: dict[str, Any],
+        sel: S,
+    ) -> dict[str, Any] | None:
+        return self.fn.filter(x, sel)
+
+    def make_jaxpr(self, *args):
+        return self.fn.make_jaxpr(*args)
 
     ###########
     # Tactics #
