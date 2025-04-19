@@ -20,8 +20,15 @@ genjax = { path = ".", editable = true }
 [tool.pixi.dependencies]
 jax = ">=0.5.2,<0.6"
 
+[tool.vulture]
+make_whitelist = true
+min_confidence = 80
+paths = ["src"]
+sort_by_size = true
+
 [tool.pixi.feature.format.tasks]
 format = "ruff format src && ruff format quarto/index.py && ruff check --fix src && ruff check --fix quarto/index.py"
+vulture = "vulture"
 
 [tool.pixi.feature.docs.tasks]
 deploy = "quarto publish gh-pages ./quarto"
@@ -32,5 +39,5 @@ format = { features = ["format"], solve-group = "default" }
 docs = { features = ["docs"], solve-group = "docs" }
 
 [dependency-groups]
-format = ["ruff>=0.9.2,<0.10"]
+format = ["ruff>=0.9.2,<0.10","vulture>=2.14,<3"]
 docs = ["jupyter"]

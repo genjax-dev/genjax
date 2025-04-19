@@ -130,9 +130,8 @@ def collect(
 
 @dataclass
 class EnumerationInterpreter:
-    @classmethod
+    @staticmethod
     def eval_jaxpr_enum(
-        cls,
         jaxpr: Jaxpr,
         consts: list[Any],
         args: list[Any],

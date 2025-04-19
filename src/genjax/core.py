@@ -37,9 +37,7 @@ Any = btyping.Any
 PRNGKey = jtyping.PRNGKeyArray
 Array = jtyping.Array
 ArrayLike = jtyping.ArrayLike
-IntArray = jtyping.Int[jtyping.Array, "..."]
 FloatArray = jtyping.Float[jtyping.Array, "..."]
-BoolArray = jtyping.Bool[jtyping.Array, "..."]
 Callable = btyping.Callable
 TypeAlias = btyping.TypeAlias
 Sequence = btyping.Sequence
@@ -47,11 +45,8 @@ Iterable = btyping.Iterable
 Final = btyping.Final
 Generator = btyping.Generator
 Generic = btyping.Generic
-InAxes = int | Sequence[Any] | None
-Flag = bool | BoolArray
 TypeVar = btyping.TypeVar
 
-A = TypeVar("A")
 R = TypeVar("R")
 X = TypeVar("X")
 
@@ -316,20 +311,19 @@ class ElaboratedPrimitive(Primitive):
         batching.primitive_batchers[self] = batch
         mlir.register_lowering(self, lowering)
 
-    @classmethod
-    def unwrap(cls, v):
+    @staticmethod
+    def unwrap(v):
         return (v.prim, v.params) if isinstance(v, ElaboratedPrimitive) else (v, {})
 
-    @classmethod
-    def check(cls, primitive, other):
+    @staticmethod
+    def check(primitive, other):
         if isinstance(primitive, ElaboratedPrimitive):
             return primitive.prim == other
         else:
             return primitive == other
 
-    @classmethod
+    @staticmethod
     def rebind(
-        cls,
         primitive: Primitive,
         inner_params,
         params,
@@ -880,9 +874,8 @@ class ModularVmapInterpreter:
     but is aware of probability distributions as first class citizens.
     """
 
-    @classmethod
+    @staticmethod
     def eval_jaxpr_modular_vmap(
-        cls,
         axis_size: int,
         jaxpr: Jaxpr,
         consts: list[Any],
@@ -976,8 +969,8 @@ class ModularVmapInterpreter:
 
         return safe_map(env.read, jaxpr.outvars)
 
-    @classmethod
-    def stage_and_run(cls, axis_size, fn, dummy_arg, args):
+    @staticmethod
+    def stage_and_run(axis_size, fn, dummy_arg, args):
         closed_jaxpr, (flat_args, _, out_tree) = stage(
             fn,
         )(*args)
@@ -1198,13 +1191,6 @@ def match(addr: Addr, sel: Selection):
 
 class RMI(Generic[X, R], Pytree):
     @abstractmethod
-    def abstract(
-        self,
-        args,
-    ) -> R:
-        pass
-
-    @abstractmethod
     def discretize(
         self,
         args: tuple[Any, ...],
@@ -1338,16 +1324,6 @@ class Vmap(Generic[X, R], RGFI[X, R]):
     ##############
     # Reflection #
     ##############
-
-    def abstract(self, args) -> R:
-        assert isinstance(self.gen_fn, RGFI)
-        return modular_vmap(
-            self.gen_fn.abstract,
-            in_axes=self.in_axes,
-            axis_size=self.axis_size,
-            axis_name=self.axis_name,
-            spmd_axis_name=self.axis_name,
-        )(args)
 
     def discretize(
         self,
@@ -1493,9 +1469,6 @@ class Distribution(Generic[X], RGFI[X, X]):
 class RMDistribution(Generic[X], RMI[X, X]):
     distribution: Distribution[X]
     constraint: X
-
-    def abstract(self, args) -> X:
-        return self.distribution.simulate(args).get_retval()
 
     def discretize(
         self,
@@ -1674,15 +1647,10 @@ trace_p = InitialStylePrimitive(
     f"{style.BOLD}{style.GREEN}refl.trace{style.RESET}",
 )
 
-# Reflective measure function trace intrinsic (for staging).
-mtrace_p = InitialStylePrimitive(
-    f"{style.BOLD}{style.GREEN}refl.mtrace{style.RESET}",
-)
-
 
 def refl_trace(
     addr,
-    gen_fn: GFI[X, R] | RMI[X, R],
+    gen_fn: GFI[X, R],
     args,
 ):
     gen_fn_name = (
@@ -1694,28 +1662,17 @@ def refl_trace(
         else None
     )
 
-    if isinstance(gen_fn, GFI):
+    def default_semantics(gen_fn, args):
+        return gen_fn.simulate(args).get_retval()
 
-        def default_semantics(gen_fn, args):
-            return gen_fn.simulate(args).get_retval()
-
-        return initial_style_bind(trace_p)(
-            default_semantics,
-            addr=addr,
-            name=gen_fn_name,
-        )(
-            gen_fn,
-            args,
-        )
-    else:
-        return initial_style_bind(mtrace_p)(
-            lambda gen_fn, args: gen_fn.abstract(args),
-            addr=addr,
-            name=gen_fn_name,
-        )(
-            gen_fn,
-            args,
-        )
+    return initial_style_bind(trace_p)(
+        default_semantics,
+        addr=addr,
+        name=gen_fn_name,
+    )(
+        gen_fn,
+        args,
+    )
 
 
 @dataclass
@@ -1813,12 +1770,8 @@ class Fn(
     # Reflection #
     ##############
 
-    def abstract(self, args) -> R:
-        return self.simulate(args).get_retval()
-
-    @classmethod
+    @staticmethod
     def eval_jaxpr_discretize(
-        cls,
         sel: Selection,
         jaxpr: Jaxpr,
         consts: list[Any],
@@ -1870,9 +1823,8 @@ class Fn(
 
         return Fn(new_source)
 
-    @classmethod
+    @staticmethod
     def eval_jaxpr_project(
-        cls,
         x: dict[str, Any] | None,
         jaxpr: Jaxpr,
         consts: list[Any],
@@ -1926,9 +1878,6 @@ class RMFn(
     fn: Fn[R]
     x: dict[str, Any]
 
-    def abstract(self, args) -> R:
-        return self.fn.abstract(args)
-
     def discretize(
         self,
         args: tuple[Any, ...],
@@ -1945,9 +1894,8 @@ class RMFn(
         x = x if x else {}
         return RMFn(self.fn, {**x, **self.x})
 
-    @classmethod
+    @staticmethod
     def eval_jaxpr_lower_enum(
-        cls,
         constraint: dict[str, Any],
         jaxpr: Jaxpr,
         consts: list[Any],
@@ -2012,9 +1960,8 @@ class RMFn(
     # Tactics #
     ###########
 
-    @classmethod
+    @staticmethod
     def eval_jaxpr_generate(
-        cls,
         x: dict[str, Any],
         jaxpr: Jaxpr,
         consts: list[Any],

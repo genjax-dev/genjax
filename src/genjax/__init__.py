@@ -12,8 +12,14 @@ beartype_this_package(conf=conf)
 
 from .adev import (
     Dual,
+    add_cost,
+    categorical_enum_parallel,
     expectation,
     flip_enum,
+    flip_enum_parallel,
+    flip_mvd,
+    flip_reinforce,
+    geometric_reinforce,
     normal_reinforce,
     normal_reparam,
 )
@@ -36,6 +42,7 @@ from .distributions import (
     beta,
     categorical,
     flip,
+    labeled_cat,
     normal,
     normal_grid_around_mean,
 )
@@ -52,6 +59,13 @@ __all__ = [
     "Distribution",
     "Dual",
     "Fn",
+    "flip_mvd",
+    "labeled_cat",
+    "flip_enum_parallel",
+    "flip_reinforce",
+    "categorical_enum_parallel",
+    "geometric_reinforce",
+    "add_cost",
     "Algorithm",
     "Importance",
     "Vmap",

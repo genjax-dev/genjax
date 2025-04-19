@@ -16,13 +16,13 @@ tfd = tfp.distributions
 
 bernoulli = tfp_distribution(
     tfd.Bernoulli,
-    discretization=lambda logits, size: bernoulli,
+    discretization=lambda logits: bernoulli,
     name="Bernoulli",
 )
 
 flip = tfp_distribution(
     lambda p: tfd.Bernoulli(probs=p, dtype=jnp.bool_),
-    discretization=lambda p, size: flip,
+    discretization=lambda p: flip,
     name="Flip",
 )
 

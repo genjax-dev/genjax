@@ -650,55 +650,6 @@ normal_reparam = distribution(
 )
 
 
-@Pytree.dataclass
-class Baseline(ADEVPrimitive):
-    prim: ADEVPrimitive
-
-    def sample(self, *args):
-        return self.prim.sample(*args[1:])
-
-    def prim_jvp_estimate(
-        self,
-        dual_tree: DualTree,
-        konts: tuple[Any, ...],
-    ):
-        (kpure, kdual) = konts
-        (b_primal, *prim_primals) = Dual.tree_primal(dual_tree)
-        (b_tangent, *prim_tangents) = Dual.tree_tangent(dual_tree)
-
-        def new_kdual(key, dual: Dual):
-            ret_dual = kdual(key, dual)
-
-            def _inner(ret, b):
-                return ret - b
-
-            primal, tangent = jax.jvp(
-                _inner,
-                (ret_dual.primal, b_primal),
-                (ret_dual.tangent, b_tangent),
-            )
-            return Dual(primal, tangent)
-
-        l_dual = self.prim.prim_jvp_estimate(
-            Dual.dual_tree(prim_primals, prim_tangents),
-            (kpure, new_kdual),
-        )
-
-        def _inner(left, right):
-            return left + right
-
-        primal, tangent = jax.jvp(
-            _inner,
-            (l_dual.primal, b_primal),
-            (l_dual.tangent, b_tangent),
-        )
-        return Dual(primal, tangent)
-
-
-def baseline(prim):
-    return Baseline(prim)
-
-
 ##################
 # Loss primitive #
 ##################
