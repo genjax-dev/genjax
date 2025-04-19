@@ -5,8 +5,6 @@
 
 > In-progress rewrite: [full featured version](https://github.com/genjax-dev/genjax-chi)
 
-## What is GenJAX?
-
 (**Probabilistic programming language**) GenJAX is a probabilistic programming language (PPL): a system which provides automation for writing programs which perform computations on probability distributions, including sampling, variational approximation, gradient estimation for expected values, and more.
 
 (**With programmable inference**) The design of GenJAX is centered on _programmable inference_: automation which allows users to express and customize Bayesian inference algorithms (algorithms for computing with posterior distributions: "_x_ affects _y_, and I observe _y_, what are my new beliefs about _x_?"). Programmable inference includes advanced forms of Monte Carlo and variational inference methods.
