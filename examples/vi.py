@@ -1,7 +1,7 @@
 import jax.random as jrand
 from jax.lax import scan
 
-from genjax import expectation, gen, normal, normal_reinforce, normal_reparam, seed
+from genjax import expectation, gen, normal, normal_reinforce, seed
 
 
 @gen

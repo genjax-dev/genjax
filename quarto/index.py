@@ -39,21 +39,18 @@
 # %%
 # | code-summary: Prelude
 # | code-fold: true
-from functools import partial
 
 import genstudio.plot as Plot
 import jax.numpy as jnp
 import jax.random as jrand
 import treescope
-from jax import jit, make_jaxpr
+from jax import make_jaxpr
 from jax.lax import cond, scan
-from jax.numpy import array, sum, zeros
+from jax.numpy import array, sum
 
 from genjax import (
     GFI,
-    Importance,
     gen,
-    marginal,
     normal,
     normal_reinforce,
     normal_reparam,
@@ -61,7 +58,6 @@ from genjax import (
     trace,
 )
 from genjax import modular_vmap as pjax_vmap
-from genjax import modular_vmap as vmap
 from genjax.adev import Dual, expectation, flip_enum
 
 treescope.basic_interactive_setup(autovisualize_arrays=False)

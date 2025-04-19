@@ -27,7 +27,7 @@ paths = ["src"]
 sort_by_size = true
 
 [tool.pixi.feature.format.tasks]
-format = "ruff format src && ruff format quarto/index.py && ruff check --fix src && ruff check --fix quarto/index.py"
+format = "ruff format . && ruff check . --fix"
 vulture = "vulture"
 
 [tool.pixi.feature.docs.tasks]

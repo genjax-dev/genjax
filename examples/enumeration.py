@@ -1,16 +1,11 @@
 import jax.numpy as jnp
-from jax import make_jaxpr
 
 from genjax import (
     attach_discretization,
-    enum,
-    flip,
     gen,
     normal,
     normal_grid_around_mean,
-    trace,
 )
-from genjax import modular_vmap as vmap
 
 normal = attach_discretization(
     normal,
