@@ -1390,11 +1390,6 @@ class BaseType(Pytree):
 
 
 @Pytree.dataclass
-class Bottom(BaseType):
-    pass
-
-
-@Pytree.dataclass
 class RR(BaseType):
     pass
 
@@ -1405,6 +1400,11 @@ class Finite(BaseType):
 
 
 class TraceType(Pytree):
+    pass
+
+
+@Pytree.dataclass
+class Bottom(TraceType):
     pass
 
 
@@ -1749,7 +1749,7 @@ class Distribution(Generic[X], RGFI[X, X]):
         self,
         args,
     ) -> TraceType:
-        return self.tryper(args) if self.tryper else Shaped((), Bottom())
+        return self.tryper(*args) if self.tryper else Bottom()
 
     def lower_enum(
         self,
@@ -1861,9 +1861,10 @@ def distribution[X](
 def tfp_distribution[X](
     dist: Callable[..., "tfd.Distribution"],
     /,
-    name: str | None = None,
-    support: Callable[..., Any] | None = None,
     discretization: Callable[..., Distribution[X]] | None = None,
+    support: Callable[..., Any] | None = None,
+    tryper: Callable[..., TraceType] | None = None,
+    name: str | None = None,
 ) -> Distribution[Any]:
     def keyful_sampler(key, *args, sample_shape=(), **kwargs):
         d = dist(*args, **kwargs)
@@ -1876,8 +1877,9 @@ def tfp_distribution[X](
     return distribution(
         wrap_sampler(keyful_sampler, name=name, support=support),
         wrap_logpdf(logpdf),
-        name=name,
         discretization=discretization,
+        tryper=tryper,
+        name=name,
     )
 
 

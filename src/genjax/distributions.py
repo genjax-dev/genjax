@@ -3,8 +3,12 @@ from jax import vmap
 from tensorflow_probability.substrates import jax as tfp
 
 from genjax.core import (
+    BB,
+    RR,
     Callable,
     Distribution,
+    Finite,
+    Shaped,
     X,
     distribution,
     tfp_distribution,
@@ -17,6 +21,7 @@ tfd = tfp.distributions
 bernoulli = tfp_distribution(
     tfd.Bernoulli,
     discretization=lambda logits: bernoulli,
+    tryper=lambda sample_shape: BB(sample_shape),
     name="Bernoulli",
 )
 
@@ -82,6 +87,7 @@ def attach_discretization(
         d.sample,
         d.logpdf,
         discretization=strategy,
+        tryper=d.tryper,
         name=d.name,
     )
 
@@ -113,6 +119,10 @@ def normal_grid_around_mean(radius, num_points):
             x_range = jnp.arange(-radius, radius, 1 / num_points)
             return x_range + mu
 
+        def tryper(mu, sigma):
+            x_range = jnp.arange(-radius, radius, 1 / num_points)
+            return Shaped((), Finite(len(x_range)))
+
         return distribution(
             wrap_sampler(
                 keyful_sampler,
@@ -121,6 +131,7 @@ def normal_grid_around_mean(radius, num_points):
             ),
             wrap_logpdf(logpdf),
             support=support,
+            tryper=tryper,
             name="DiscretizedNormal",
         )
 
@@ -130,5 +141,6 @@ def normal_grid_around_mean(radius, num_points):
 normal = tfp_distribution(
     tfd.Normal,
     discretization=normal_grid_around_mean(2, 500),
+    tryper=lambda mu, sigma: Shaped(jnp.shape(mu), RR()),
     name="Normal",
 )
