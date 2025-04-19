@@ -5,6 +5,7 @@ from genjax import (
     gen,
     normal,
     normal_grid_around_mean,
+    sel,
 )
 
 normal = attach_discretization(
@@ -22,9 +23,9 @@ def model():
     return v
 
 
-model = model.discretize((), "v")
+model = model.discretize((), sel("v"))
 measure_program = model.project((), {"y": 3.0})
 tr, w = measure_program.generate(())
-fn = tr.blanket("v")
-print(fn.make_jaxpr())
-# constraint = tr.get_choices().filter(comp("v") ^ fn.addresses())
+fn = tr.blanket(sel("v"))
+print("v" in (~sel("v") ^ fn.addresses(())))
+print("y" in (~sel("v") ^ fn.addresses(())))

@@ -33,6 +33,7 @@ from .core import (
     get_choices,
     modular_vmap,
     seed,
+    sel,
     tfp_distribution,
     trace,
 )
@@ -71,6 +72,7 @@ __all__ = [
     "Vmap",
     "bernoulli",
     "Pytree",
+    "sel",
     "Marginal",
     "beta",
     "enum",

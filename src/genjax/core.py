@@ -1103,7 +1103,7 @@ class Trace(Generic[X, R], Pytree):
     # Reflection #
     ##############
 
-    def blanket(self, sel) -> "RMI[X, R]":
+    def blanket(self, sel: "S") -> "RMI[X, R]":
         gen_fn = self.get_gen_fn()
         args = self.get_args()
         _, blkt = gen_fn.blanket(Flow.pure(args), self, sel)
@@ -1184,21 +1184,95 @@ K = TypeVar("K")
 EnumDSL = Callable[..., K]
 
 Addr = btyping.Tuple | str
-Selection = str | tuple[str, ...] | None
 
 
-def match(addr: Addr, sel: Selection):
-    if sel == ():
-        return True, sel
-    elif sel is None:
-        return False, None
-    elif isinstance(sel, str):
-        check = addr == sel
-        return addr == sel, () if check else None
+@Pytree.dataclass
+class AllSel(Pytree):
+    def match(self, addr) -> "tuple[bool, AllSel]":
+        return True, self
+
+
+@Pytree.dataclass
+class NoneSel(Pytree):
+    def match(self, addr) -> "tuple[bool, NoneSel]":
+        return False, self
+
+
+@Pytree.dataclass
+class StrSel(Pytree):
+    s: str
+
+    def match(self, addr) -> tuple[bool, AllSel | NoneSel]:
+        check = addr == self.s
+        return check, AllSel() if check else NoneSel()
+
+
+@Pytree.dataclass
+class DictSel(Pytree):
+    d: "dict[str, Any]"
+
+    def match(self, addr) -> "tuple[bool, Any]":
+        check = addr in self.d
+        return check, self.d[addr] if check else None
+
+
+@Pytree.dataclass
+class ComplSel(Pytree):
+    s: "S"
+
+    def match(self, addr) -> "tuple[bool, ComplSel]":
+        check, rest = self.s.match(addr)
+        return not check, ComplSel(rest)
+
+
+@Pytree.dataclass
+class InSel(Pytree):
+    s1: "S"
+    s2: "S"
+
+    def match(self, addr) -> "tuple[bool, InSel]":
+        check1, r1 = self.s1.match(addr)
+        check2, r2 = self.s2.match(addr)
+        return check1 and check2, InSel(r1, r2)
+
+
+@Pytree.dataclass
+class S(Pytree):
+    s: NoneSel | AllSel | StrSel | DictSel | ComplSel | InSel
+
+    def match(self, addr) -> "tuple[bool, S]":
+        check, rest = self.s.match(addr)
+        return check, S(rest) if not isinstance(rest, S) else rest
+
+    def __xor__(self, other: "S") -> "S":
+        return S(InSel(self, other))
+
+    def __invert__(self) -> "S":
+        return S(ComplSel(self))
+
+    def __contains__(self, addr) -> bool:
+        check, _ = self.match(addr)
+        return check
+
+
+def sel(*v: tuple[()] | str | dict[str, Any] | None) -> S:
+    assert len(v) <= 1
+    if len(v) == 1:
+        if v[0] is None:
+            return S(NoneSel())
+        if v[0] == ():
+            return S(AllSel())
+        elif isinstance(v[0], dict):
+            return S(DictSel(v[0]))
+        else:
+            assert isinstance(v[0], str)
+            return S(StrSel(v[0]))
     else:
-        assert isinstance(sel, tuple) and len(sel) > 0
-        check = addr == sel[0]
-        return check, sel[1:] if check else None
+        return S(NoneSel())
+
+
+def match(addr: Addr, sel: S):
+    return sel.match(addr)
 
 
 @Pytree.dataclass
@@ -1296,7 +1370,7 @@ class RMI(Generic[X, R], Pytree):
     def discretize(
         self,
         args: tuple[Any, ...],
-        sel: Selection,
+        sel: S,
     ) -> "RMI[X, R] | RGFI[X, R]":
         pass
 
@@ -1312,8 +1386,14 @@ class RMI(Generic[X, R], Pytree):
         self,
         flow_args: tuple[Flowing, ...],
         tr: Trace[X, R],
-        sel: Selection,
+        sel: S,
     ) -> "tuple[Flowing, RMI[X, R] | None]":
+        raise NotImplementedError
+
+    def addresses(
+        self,
+        args: tuple[Any, ...],
+    ) -> S:
         raise NotImplementedError
 
     # Lower to a representation that supports
@@ -1438,7 +1518,7 @@ class Vmap(Generic[X, R], RGFI[X, R]):
     def discretize(
         self,
         args: tuple[Any, ...],
-        sel: Selection,
+        sel: S,
     ) -> RMI[X, R]:
         def _(args):
             assert isinstance(self.gen_fn, RMI)
@@ -1525,7 +1605,7 @@ class Distribution(Generic[X], RGFI[X, X]):
     def discretize(
         self,
         args: tuple[Any, ...],
-        sel: Selection,
+        sel: S,
     ) -> "Distribution[X]":
         matched, _ = match((), sel)
         if matched:
@@ -1547,7 +1627,7 @@ class Distribution(Generic[X], RGFI[X, X]):
         self,
         flow_args: tuple[Flowing, ...],
         tr: Trace[X, X],
-        sel: Selection,
+        sel: S,
     ) -> "tuple[Flowing, RMI[X, X] | None]":
         check, _ = match((), sel)
         if check:
@@ -1556,13 +1636,18 @@ class Distribution(Generic[X], RGFI[X, X]):
                 self,
             )
         elif Flow.any(flow_args):
-            args = Flow.unwrap(flow_args)
             return (
                 Flow.pure(tr.get_retval()),
                 self,
             )
         else:
             return Flow.pure(tr.get_retval()), None
+
+    def addresses(
+        self,
+        args: tuple[Any, ...],
+    ) -> S:
+        return sel(())
 
     def lower_enum(
         self,
@@ -1598,7 +1683,7 @@ class RMDistribution(Generic[X], RMI[X, X]):
     def discretize(
         self,
         args: tuple[Any, ...],
-        sel: Selection,
+        sel: S,
     ) -> RMI[X, X]:
         discretized = self.distribution.discretize(args, sel)
         assert isinstance(discretized, RGFI)
@@ -1881,7 +1966,7 @@ class Fn(
 
     @staticmethod
     def eval_jaxpr_discretize(
-        sel: Selection,
+        sel: S,
         jaxpr: Jaxpr,
         consts: list[Any],
         args: list[Any],
@@ -1920,7 +2005,7 @@ class Fn(
     def discretize(
         self,
         args: tuple[Any, ...],
-        sel: Selection,
+        sel: S,
     ) -> "Fn[R]":
         def new_source(*args):
             closed_jaxpr, (_, _, out_tree) = self._stage(args)
@@ -1981,7 +2066,7 @@ class Fn(
     @staticmethod
     def eval_jaxpr_blanket(
         x: dict[str, Any],
-        sel: Selection,
+        sel: S,
         jaxpr: Jaxpr,
         consts: list[Any],
         args: list[Flowing],
@@ -2066,7 +2151,7 @@ class Fn(
         self,
         flow_args: tuple[Flowing, ...],
         tr: Trace[dict[str, Any], R],
-        sel: Selection,
+        sel: S,
     ) -> "tuple[Flowing, Fn[R]]":
         def _(*flow_args):
             closed_jaxpr, (_, _, out_tree) = self._stage(Flow.unwrap(flow_args))
@@ -2080,6 +2165,53 @@ class Fn(
         flow_retval = _(*flow_args)
         return flow_retval, Fn(Flow.lift(_))
 
+    @staticmethod
+    def eval_jaxpr_addresses(
+        jaxpr: Jaxpr,
+        consts: list[Any],
+        args: list[Any],
+    ):
+        env = Environment()
+        safe_map(env.write, jaxpr.invars, args)
+        safe_map(env.write, jaxpr.constvars, consts)
+        addrs: dict[str, Any] = {}
+
+        for eqn in jaxpr.eqns:
+            invals = safe_map(env.read, eqn.invars)
+            subfuns, params = eqn.primitive.get_bind_params(eqn.params)
+            args = subfuns + invals
+            primitive, inner_params = ElaboratedPrimitive.unwrap(eqn.primitive)
+
+            # Logic to compositionally call `project`
+            # on callees.
+            if primitive == trace_p:
+                addr = params["addr"]
+                in_tree = inner_params["in_tree"]
+                num_consts = inner_params["num_consts"]
+                (gen_fn, args) = jtu.tree_unflatten(in_tree, args[num_consts:])
+                subaddrs = gen_fn.addresses(args)
+                addrs[addr] = subaddrs
+                tree_outvals = refl_trace(addr, gen_fn, args)
+                outvals = jtu.tree_leaves(tree_outvals)
+            else:
+                outvals = ElaboratedPrimitive.rebind(
+                    eqn.primitive, inner_params, params, *args
+                )
+
+            if not eqn.primitive.multiple_results:
+                outvals = [outvals]
+            safe_map(env.write, eqn.outvars, outvals)
+
+        return addrs
+
+    def addresses(
+        self,
+        args: tuple[Any, ...],
+    ) -> S:
+        closed_jaxpr, (_, _, out_tree) = self._stage(args)
+        jaxpr, consts = closed_jaxpr.jaxpr, closed_jaxpr.literals
+        return sel(Fn.eval_jaxpr_addresses(jaxpr, consts, list(args)))
+
 
 @Pytree.dataclass
 class RMFn(
@@ -2092,7 +2224,7 @@ class RMFn(
     def discretize(
         self,
         args: tuple[Any, ...],
-        sel: Selection,
+        sel: S,
     ) -> "RMFn[R]":
         new_source = self.fn.discretize(args, sel)
         return RMFn(new_source, self.x)
