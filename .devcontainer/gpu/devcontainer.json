@@ -1,5 +1,5 @@
 {
-    "name": "genjax",
+    "name": "genjax-gpu",
     "image": "mcr.microsoft.com/devcontainers/base:jammy",
     "postCreateCommand": "bash .devcontainer/post-create.sh",
     "features": {
@@ -7,20 +7,15 @@
         "version": "3.11"
       }
     },
-    // Use 'hostRequirements' to make a list of host requirements inside the container available locally.
-    // If the host has a GPU, this will automatically run with GPU support.
-    "hostRequirements": {
-      "gpu": "optional"
-    },
+    // Enable visibility to the host GPU
     "runArgs": [
       "--gpus=all"
     ],
-    // Use 'forwardPorts' to make a list of ports inside the container available locally.
-    "forwardPorts": [],
     // Configure tool-specific properties.
     "customizations": {
       "vscode": {
         "settings": {
+          // Python Settings
           "[python]": {
             "editor.defaultFormatter": "charliermarsh.ruff",
             "editor.formatOnSave": true,
