@@ -71,6 +71,8 @@ The easiest way to get started is using the provided Dev Container configuration
 
   The setup process runs automatically and takes 2-3 minutes on first launch.
 
+Note: Upon first startup, reload the window so all extensions can properly load now that setup is complete.
+
 ### Manual Setup
 You need Python 3.7+ (we recommend 3.11+) and the following tools:
 
