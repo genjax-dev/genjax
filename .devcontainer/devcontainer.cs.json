@@ -1,5 +1,5 @@
 {
-    "name": "genjax",
+    "name": "genjax-cs",
     "image": "mcr.microsoft.com/devcontainers/base:jammy",
     "postCreateCommand": "bash .devcontainer/post-create.sh",
     "features": {
