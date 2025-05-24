@@ -70,6 +70,7 @@ nox = "^2024.3.2"
 nox-poetry = "^1.0.3"
 jupytext = "^1.16.2"
 pre-commit = "^4.2.0"
+pyright = "1.1.399"
 
 [tool.poetry.group.docs]
 optional = true

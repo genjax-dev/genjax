@@ -3692,6 +3692,27 @@ files = [
 ]
 
 [[package]]
+name = "pyright"
+version = "1.1.399"
+description = "Command line wrapper for pyright"
+optional = false
+python-versions = ">=3.7"
+groups = ["dev"]
+files = [
+    {file = "pyright-1.1.399-py3-none-any.whl", hash = "sha256:55f9a875ddf23c9698f24208c764465ffdfd38be6265f7faf9a176e1dc549f3b"},
+    {file = "pyright-1.1.399.tar.gz", hash = "sha256:439035d707a36c3d1b443aec980bc37053fbda88158eded24b8eedcf1c7b7a1b"},
+]
+
+[package.dependencies]
+nodeenv = ">=1.6.0"
+typing-extensions = ">=4.1"
+
+[package.extras]
+all = ["nodejs-wheel-binaries", "twine (>=3.4.1)"]
+dev = ["twine (>=3.4.1)"]
+nodejs = ["nodejs-wheel-binaries"]
+
+[[package]]
 name = "pytest"
 version = "7.4.4"
 description = "pytest: simple powerful testing with Python"
@@ -5096,4 +5117,4 @@ genstudio = ["genstudio"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<4.0"
-content-hash = "8cbf57df7b6394502e9acb9be95c9b5f69e8c5e8e050edc3c4500572cb4cdb36"
+content-hash = "e3d356963f4a002f6d35bfaa800a6aa91b5f3d50403039b6f751b78f013dadb8"
