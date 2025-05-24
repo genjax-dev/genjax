@@ -41,7 +41,39 @@ and/or steps to reproduce the issue.
 Request features on the [Issue Tracker].
 
 ## How to set up your development environment
+### Dev Container
 
+The easiest way to get started is using the provided Dev Container configuration, which automatically sets up a complete development environment.
+
+#### What gets installed?
+- Python 3.11
+- Poetry (dependency management)
+- All project dependencies (including dev dependencies)
+- Pre-commit hooks
+- VS Code extensions for Python development, formatting, and testing
+
+#### Setup
+
+- **GitHub Codespaces**
+  1. Click "Code" → "Codespaces" → "Codespace repository configuration" (next to "Create codespace on main")
+  2. Click "New with options..."
+  3. Choose `genjax` configuration (not `genjax-gpu` - Codespaces don't support GPU access)
+  4. Wait for the container to build and dependencies to install (~5 minutes)
+  5. Start coding - everything is ready to go
+
+- **Local with VS Code:**
+  1. Install [Docker](https://docs.docker.com/get-docker/) and [VS Code Dev Containers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers)
+  2. Clone the repository
+  3. Open in editor (VS Code/Cursor/Windsurf) and click "Reopen in Container" when prompted
+  4. Choose either:
+     - `base` - Standard development environment
+     - `gpu` - Includes GPU access for CUDA workloads
+
+  The setup process runs automatically and takes 2-3 minutes on first launch.
+
+Note: Upon first startup, reload the window so all extensions can properly load now that setup is complete.
+
+### Manual Setup
 You need Python 3.7+ (we recommend 3.11+) and the following tools:
 
 - [Poetry]

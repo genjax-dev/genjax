@@ -23,6 +23,7 @@ docs/_autosummary
 .idea
 .vscode
 jax.iml
+.venv/
 venv/
 bin/
 share/
