@@ -19,7 +19,7 @@ jobs:
       - name: Install and configure Poetry
         uses: snok/install-poetry@v1
         with:
-          version: 1.8.5
+          version: 2.1.3
 
       - run: poetry install --with dev --all-extras
 
