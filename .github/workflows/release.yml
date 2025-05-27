@@ -37,6 +37,7 @@ jobs:
 
       - name: Configure deploy keys
         run: |
+          poetry self add poetry-plugin-export
           poetry self add poetry-dynamic-versioning[plugin]
           poetry config pypi-token.pypi ${{ secrets.PYPI_API_KEY }}
 
