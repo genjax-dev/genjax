@@ -1,0 +1,67 @@
+@font-face {
+    font-family: 'Cal Sans';
+    src: url('../assets/font/CalSans-SemiBold.woff2') format('woff2');
+    font-style: normal;
+}
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+
+@font-face {
+    font-family: 'Berkeley Mono';
+    src: url('../assets/font/BerkeleyMonoVariable-Regular.woff2') format('woff2');
+    font-weight: 100 900;
+    font-style: normal;
+}
+
+@font-face {
+    font-family: 'Berkeley Mono';
+    src: url('../assets/font/BerkeleyMonoVariable-Italic.woff2') format('woff2');
+    font-weight: 100 900;
+    font-style: italic;
+}
+
+.md-typeset h1,
+.md-typeset h2,
+.md-typeset h3,
+.md-typeset h4,
+.md-typeset h5,
+.md-typeset h6 {
+  font-weight: bold;
+  font-family: "Cal Sans";
+}
+
+
+.md-typeset {
+  font-family: Inter, Roboto, 'Helvetica Neue', 'Arial Nova', 'Nimbus Sans', Arial, sans-serif;
+  font-weight: normal;
+}
+
+
+.md-typeset code {
+  font-family: 'Berkeley Mono', ui-monospace, 'Cascadia Code',
+    'Source Code Pro', Menlo, Consolas, 'DejaVu Sans Mono', monospace;
+  font-weight: 600;
+}
+
+.md-footer,
+.md-source {
+  font-weight: 600;
+}
+
+.md-content {
+  margin-left: auto;
+  margin-right: auto;
+  max-width: 800px;
+}
+
+div.md-header__ellipsis {
+  font-weight: bold;
+}
+
+treescope-container::part(treescope_root) {
+  font-family: "Berkeley Mono";
+  font-size: 13px;
+  word-wrap: break-word;
+  width: fit-content;
+  display: block;
+}
